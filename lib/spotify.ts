@@ -1,9 +1,14 @@
+import { unstable_cache } from "next/cache";
+
 /**
  * Spotify helpers that run on the server only.
  *
  * This file talks to Spotify using our app's ID and secret (from .env.local).
  * The secret never goes to the browser.
  */
+
+// Remember an ISRC → Spotify id match for a day. The match itself doesn't change hourly.
+const ONE_DAY_SECONDS = 86400;
 
 // Keep the last token in memory so we don't ask Spotify for a new one on every request.
 // Tokens last about 1 hour.
@@ -66,10 +71,17 @@ export async function getSpotifyAppToken(): Promise<string> {
 /**
  * Look up a Spotify track ID using an ISRC (the universal song ID from Deezer).
  * Returns null if Spotify has no matching track.
+ *
+ * The request itself includes a short-lived token, so we remember the
+ * resulting track id for 24 hours instead of caching that request.
  */
-export async function findSpotifyTrackIdByIsrc(
-  isrc: string,
-): Promise<string | null> {
+export const findSpotifyTrackIdByIsrc = unstable_cache(
+  lookupSpotifyTrackId,
+  ["spotify-track-by-isrc"],
+  { revalidate: ONE_DAY_SECONDS },
+);
+
+async function lookupSpotifyTrackId(isrc: string): Promise<string | null> {
   const token = await getSpotifyAppToken();
 
   const url = new URL("https://api.spotify.com/v1/search");
@@ -81,6 +93,9 @@ export async function findSpotifyTrackIdByIsrc(
     headers: {
       Authorization: `Bearer ${token}`,
     },
+    // Don't save this call under the current token. The wrapper above
+    // saves the track id on its own.
+    cache: "no-store",
   });
 
   if (!response.ok) {
@@ -91,6 +106,5 @@ export async function findSpotifyTrackIdByIsrc(
     tracks?: { items?: { id: string }[] };
   };
 
-  const trackId = data.tracks?.items?.[0]?.id ?? null;
-  return trackId;
+  return data.tracks?.items?.[0]?.id ?? null;
 }
