@@ -18,10 +18,14 @@ type SearchStatus = "idle" | "loading" | "done" | "error";
 
 /**
  * Homepage search box.
- * Types a song or artist name, shows a dropdown, and logs the choice.
- * Playing the song comes in a later phase — this only records the pick.
+ * Types a song or artist name, shows a dropdown, and tells the page
+ * which row was chosen so the player can load it.
  */
-export function SearchBox() {
+export function SearchBox({
+  onSelect,
+}: {
+  onSelect: (hit: SearchHit) => void;
+}) {
   const [query, setQuery] = useState("");
   const [songs, setSongs] = useState<SongHit[]>([]);
   const [artists, setArtists] = useState<ArtistHit[]>([]);
@@ -109,9 +113,8 @@ export function SearchBox() {
   }, []);
 
   function choose(hit: SearchHit) {
-    // Later phases will play this. For now we only log it.
-    console.log("Selected search result:", hit);
     setIsOpen(false);
+    onSelect(hit);
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -242,7 +245,7 @@ export function SearchBox() {
 
       <p className="mt-2 text-sm opacity-70">
         Type at least 2 letters. Arrow keys move through the list, Enter
-        chooses one. The choice is logged in the browser console for now.
+        chooses one.
       </p>
     </div>
   );
