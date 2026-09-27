@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { SearchHit } from "@/lib/deezer";
-import type { SongPackage } from "@/lib/types";
+import { estimatePositionMs } from "@/lib/tempo";
+import type { PlaybackSample, SongPackage } from "@/lib/types";
 
 // Spotify's embed needs about this much height to show the song.
 // Our own buttons sit underneath, so the bar stays small.
@@ -54,8 +55,26 @@ type LoadStatus = "loading" | "ready" | "error";
 /**
  * Sits under the search box after a song or musician is chosen.
  * Loads that song from our server, then plays it on Spotify.
+ * Tells the page when the song package arrives, and where playback is,
+ * so the photos can follow along.
  */
-export function PlayerBar({ selection }: { selection: SearchHit }) {
+export function PlayerBar({
+  selection,
+  onSong,
+  onPlayback,
+}: {
+  selection: SearchHit;
+  onSong: (song: SongPackage | null) => void;
+  onPlayback: (playback: PlaybackSample | null) => void;
+}) {
+  // Kept in refs so a new render doesn't restart the song load.
+  const onSongRef = useRef(onSong);
+  const onPlaybackRef = useRef(onPlayback);
+
+  useEffect(() => {
+    onSongRef.current = onSong;
+    onPlaybackRef.current = onPlayback;
+  });
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [song, setSong] = useState<SongPackage | null>(null);
   const [message, setMessage] = useState(() => loadingMessage(selection));
@@ -70,6 +89,9 @@ export function PlayerBar({ selection }: { selection: SearchHit }) {
       setStatus("loading");
       setSong(null);
       setMessage(loadingMessage(selection));
+      // Clear the previous song so its photos don't linger.
+      onSongRef.current(null);
+      onPlaybackRef.current(null);
 
       try {
         const deezerId = await resolveDeezerId(selection, abort.signal);
@@ -88,6 +110,7 @@ export function PlayerBar({ selection }: { selection: SearchHit }) {
 
         setSong(nextSong);
         setStatus("ready");
+        onSongRef.current(nextSong);
       } catch (error) {
         if (cancelled || isAbortError(error)) return;
         setStatus("error");
@@ -134,7 +157,10 @@ export function PlayerBar({ selection }: { selection: SearchHit }) {
       )}
 
       {status === "ready" && song?.spotifyId && (
-        <SpotifyPlayer spotifyId={song.spotifyId} />
+        <SpotifyPlayer
+          spotifyId={song.spotifyId}
+          onPlayback={(sample) => onPlaybackRef.current(sample)}
+        />
       )}
     </section>
   );
@@ -144,10 +170,28 @@ export function PlayerBar({ selection }: { selection: SearchHit }) {
  * The Spotify embed plus our Play/Pause and skip buttons.
  * Rendered only after we know the Spotify track id.
  */
-function SpotifyPlayer({ spotifyId }: { spotifyId: string }) {
+function SpotifyPlayer({
+  spotifyId,
+  onPlayback,
+}: {
+  spotifyId: string;
+  onPlayback: (playback: PlaybackSample | null) => void;
+}) {
   const hostRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<EmbedController | null>(null);
   const playbackRef = useRef<PlaybackUpdate | null>(null);
+  // The last position we told the photos about, including pause and skip.
+  const sampleRef = useRef<PlaybackSample | null>(null);
+  const onPlaybackRef = useRef(onPlayback);
+
+  useEffect(() => {
+    onPlaybackRef.current = onPlayback;
+  });
+
+  function publish(sample: PlaybackSample | null) {
+    sampleRef.current = sample;
+    onPlaybackRef.current(sample);
+  }
 
   const [playerReady, setPlayerReady] = useState(false);
   const [playback, setPlayback] = useState<PlaybackUpdate | null>(null);
@@ -184,9 +228,19 @@ function SpotifyPlayer({ spotifyId }: { spotifyId: string }) {
           setPlayerReady(true);
 
           controller.addListener("playback_update", (event) => {
+            // Ignore reports from a player we're already tearing down.
+            if (cancelled) return;
+
             const data = readPlayback(event);
             playbackRef.current = data;
             setPlayback(data);
+            // Hand the photos this reading, stamped with the time it arrived
+            // so they can glide forward until Spotify speaks again.
+            publish({
+              positionMs: typeof data.position === "number" ? data.position : 0,
+              isPlaying: data.isPaused === false && data.isBuffering !== true,
+              receivedAt: performance.now(),
+            });
           });
 
           // Try to start as soon as the player exists, and again when Spotify
@@ -222,6 +276,7 @@ function SpotifyPlayer({ spotifyId }: { spotifyId: string }) {
 
     return () => {
       cancelled = true;
+      publish(null);
       destroyController(controllerRef.current);
       controllerRef.current = null;
       host.replaceChildren();
@@ -235,21 +290,60 @@ function SpotifyPlayer({ spotifyId }: { spotifyId: string }) {
     const current = playbackRef.current;
 
     // isPaused is missing until the first update — treat that as "not started".
+    // Freeze or resume the photos immediately. Spotify confirms a moment later.
     if (current?.isPaused === false) {
       controller.pause();
+      noteTransport(false);
       return;
     }
     if (current?.isPaused) {
       controller.resume();
+      noteTransport(true);
       return;
     }
     controller.play();
+    noteTransport(true);
   }
 
   function onSeek(deltaSeconds: number) {
-    const positionMs = playbackRef.current?.position ?? 0;
-    const nextSeconds = Math.max(0, positionMs / 1000 + deltaSeconds);
-    controllerRef.current?.seek(nextSeconds);
+    // Skip from the smooth position, not the last once-a-second report,
+    // so the photos jump to the same place as the music.
+    const positionMs = Math.max(
+      0,
+      estimatePositionMs(sampleRef.current) + deltaSeconds * 1000,
+    );
+    controllerRef.current?.seek(positionMs / 1000);
+
+    const previous = playbackRef.current;
+    const nextPlayback: PlaybackUpdate = {
+      ...previous,
+      position: positionMs,
+    };
+    playbackRef.current = nextPlayback;
+    setPlayback(nextPlayback);
+    publish({
+      positionMs,
+      isPlaying: sampleRef.current?.isPlaying ?? false,
+      receivedAt: performance.now(),
+    });
+  }
+
+  function noteTransport(isPlaying: boolean) {
+    const positionMs = estimatePositionMs(sampleRef.current);
+    const previous = playbackRef.current;
+    const nextPlayback: PlaybackUpdate = {
+      ...previous,
+      position: positionMs,
+      isPaused: !isPlaying,
+      isBuffering: false,
+    };
+    playbackRef.current = nextPlayback;
+    setPlayback(nextPlayback);
+    publish({
+      positionMs,
+      isPlaying,
+      receivedAt: performance.now(),
+    });
   }
 
   // False until Spotify tells us the song is actually playing.
@@ -338,9 +432,8 @@ async function resolveDeezerId(
 }
 
 /**
- * Asks our server for the song package.
- * Scenes and photos come along for the visual engine later. This bar
- * still only uses the title, artist, and Spotify id.
+ * Asks our server for the song package: title, artist, tempo, scenes, photos.
+ * The player uses the Spotify id. The visualizer uses the scenes.
  */
 async function fetchSongPackage(
   deezerId: number,

@@ -49,3 +49,20 @@ export type SongPackage = {
   lyricsType: LyricsType;
   scenes: Scene[];
 };
+
+/**
+ * One reading from the Spotify player.
+ * The player reports this about once a second. The visualizer uses it
+ * to keep the photos in time between those reports.
+ */
+export type PlaybackSample = {
+  /** Where Spotify said the song was, in milliseconds. */
+  positionMs: number;
+  /** True only while the song is actually moving forward. */
+  isPlaying: boolean;
+  /**
+   * When this reading arrived, from performance.now().
+   * Used to guess how far the song has moved since then.
+   */
+  receivedAt: number;
+};
