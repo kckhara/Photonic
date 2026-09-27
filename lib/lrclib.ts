@@ -24,15 +24,33 @@ export type LyricsLookup = {
   durationSeconds: number;
 };
 
+export type Lyrics = {
+  lyricsType: LyricsType;
+  // Null when that version wasn't included, or the track is instrumental.
+  syncedLyrics: string | null;
+  plainLyrics: string | null;
+};
+
 /**
- * Decide whether a song has synced lyrics, plain lyrics, or none.
+ * Fetch lyrics and say whether they are synced, plain, or missing.
  * Tries an exact LRCLIB match first. If that misses, searches and
  * keeps the result whose length is closest to the Deezer duration.
  */
-export async function getLyricsType(song: LyricsLookup): Promise<LyricsType> {
+export async function getLyrics(song: LyricsLookup): Promise<Lyrics> {
   const exact = await fetchExact(song);
   const record = exact ?? (await fetchClosest(song));
-  return classify(record);
+  const lyricsType = classify(record);
+
+  // Instrumentals and misses shouldn't leak leftover text into keywords.
+  if (lyricsType === "none") {
+    return { lyricsType, syncedLyrics: null, plainLyrics: null };
+  }
+
+  return {
+    lyricsType,
+    syncedLyrics: record?.syncedLyrics?.trim() || null,
+    plainLyrics: record?.plainLyrics?.trim() || null,
+  };
 }
 
 function classify(record: LrcRecord | null): LyricsType {

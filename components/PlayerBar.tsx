@@ -337,7 +337,11 @@ async function resolveDeezerId(
   return typeof body.deezerId === "number" ? body.deezerId : null;
 }
 
-/** Asks our server for the song package (title, artist, Spotify id, and so on). */
+/**
+ * Asks our server for the song package.
+ * Scenes and photos come along for the visual engine later. This bar
+ * still only uses the title, artist, and Spotify id.
+ */
 async function fetchSongPackage(
   deezerId: number,
   signal: AbortSignal,
@@ -366,6 +370,7 @@ async function fetchSongPackage(
     durationMs: body.durationMs ?? 0,
     bpm: body.bpm ?? 120,
     lyricsType: body.lyricsType ?? "none",
+    scenes: body.scenes ?? [],
   };
 }
 
