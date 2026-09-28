@@ -60,8 +60,8 @@ export function Visualizer({
   // True while Spotify is playing a 30-second preview. Photos follow
   // the beat instead of the lyric timestamps.
   previewMode?: boolean;
-  // Called with every photo that has actually appeared. Later, the
-  // credits screen lists the photographers from this list.
+  // Called with every photo that has actually appeared. The credits
+  // screen lists those photographers — not photos that only preloaded.
   onShownPhotos?: (photos: Photo[]) => void;
 }) {
   const songRef = useRef(song);

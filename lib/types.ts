@@ -42,7 +42,7 @@ export type SongPackage = {
   spotifyId: string | null;
   title: string;
   artist: string;
-  // Deezer page for the musician. The credits screen links here later.
+  // Deezer page for the musician. The credits screen links here.
   artistUrl: string;
   // Large album cover from Deezer (cover_xl). Empty when Deezer didn't send one.
   albumCoverUrl: string;

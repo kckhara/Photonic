@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Credits } from "@/components/Credits";
 import { NoLyricsMessage, NO_LYRICS_MESSAGE_MS } from "@/components/NoLyricsMessage";
 import { PlayerBar, type PlayerCommand } from "@/components/PlayerBar";
 import { SearchBox } from "@/components/SearchBox";
@@ -12,7 +13,7 @@ import { Visualizer } from "@/components/Visualizer";
 import type { SearchHit } from "@/lib/deezer";
 import {
   classifyPlayback,
-  previewHasEnded,
+  playbackHasEnded,
   rememberLoginPromptDismissed,
   wasLoginPromptDismissed,
   type PlaybackKind,
@@ -26,18 +27,26 @@ import type { Photo, PlaybackSample, SongPackage } from "@/lib/types";
  *
  * If Spotify is only playing a 30-second preview, a small login panel
  * appears near the player. Photos keep playing behind it. See section 5.6.
+ *
+ * When a full song finishes, a credits screen covers the page. A preview
+ * never uses that screen — its ending stays on the login panel.
  */
 export default function Home() {
   // pickId changes on every choice, even the same row twice, so the player
   // starts that request from scratch instead of keeping the previous song.
   const nextPickId = useRef(0);
-  // Photos that really appeared on screen. The credits screen will read this later.
+  // Photos that really appeared on screen. The credits screen reads this
+  // when the song ends, so preloaded-but-unseen photos stay off the list.
   const shownPhotosRef = useRef<Photo[]>([]);
+  // True while the credits screen is up, so a second "ended" report
+  // doesn't open it again.
+  const creditsOpenRef = useRef(false);
   const noLyricsTimer = useRef<number | null>(null);
   // So the no-lyrics sentence only plays once per song.
   const noLyricsShownRef = useRef(false);
   const reportedDurationRef = useRef<number | null>(null);
-  // True once the playhead has been in the last second of a preview.
+  // True once the playhead has been in the last second. The next reading
+  // can then notice a jump back to the start.
   const nearEndRef = useRef(false);
   // Skip end detection for the sample that "Play again" or "Reload" just caused.
   const ignoreEndRef = useRef(false);
@@ -72,6 +81,10 @@ export default function Home() {
   const [promptStep, setPromptStep] = useState<LoginPromptStep>("invite");
   const [playerCommand, setPlayerCommand] = useState<PlayerCommand | null>(null);
   const [searchResetKey, setSearchResetKey] = useState(0);
+  const [showCredits, setShowCredits] = useState(false);
+  // Copied when the song ends, then updated if the last photo finishes
+  // fading in a moment later.
+  const [creditPhotos, setCreditPhotos] = useState<Photo[]>([]);
 
   useEffect(() => {
     songRef.current = song;
@@ -135,28 +148,36 @@ export default function Home() {
     if (needsNoLyricsMessage(songRef.current)) beginSentence();
   }
 
-  function considerPreviewEnd(sample: PlaybackSample) {
+  // Shared "did playback just finish?" check. Returns null when this
+  // reading should be ignored (a Play again / Reload we just started,
+  // or Spotify hasn't told us the length yet).
+  function endingOf(sample: PlaybackSample) {
     if (ignoreEndRef.current) {
-      if (sample.receivedAt < acceptPlaybackAfterRef.current) return;
-      if (!sample.isPlaying) return;
+      if (sample.receivedAt < acceptPlaybackAfterRef.current) return null;
+      if (!sample.isPlaying) return null;
       ignoreEndRef.current = false;
-      return;
+      return null;
     }
 
     const duration = sample.reportedDurationMs ?? reportedDurationRef.current;
-    if (!duration) return;
+    if (!duration) return null;
 
-    const result = previewHasEnded(
+    return playbackHasEnded(
       sample.positionMs,
       duration,
       sample.isPaused,
       nearEndRef.current,
     );
+  }
+
+  function considerPreviewEnd(sample: PlaybackSample) {
+    const result = endingOf(sample);
+    if (!result) return;
 
     if (result.ended) {
       nearEndRef.current = false;
       // Leave the "Reload player" step up if they already opened login.
-      // Phase 9's credits screen must not appear for a preview.
+      // A preview must never open the credits screen.
       if (promptStepRef.current === "reload" || promptStepRef.current === "ended") {
         return;
       }
@@ -166,6 +187,35 @@ export default function Home() {
     }
 
     nearEndRef.current = result.nearEnd;
+  }
+
+  function considerSongEnd(sample: PlaybackSample) {
+    const result = endingOf(sample);
+    if (!result) return;
+
+    if (result.ended) {
+      nearEndRef.current = false;
+      openCredits();
+      return;
+    }
+
+    nearEndRef.current = result.nearEnd;
+  }
+
+  function openCredits() {
+    // Preview mode keeps the login panel. Credits are for a full song.
+    if (creditsOpenRef.current || previewModeRef.current || !songRef.current) {
+      return;
+    }
+    creditsOpenRef.current = true;
+    setCreditPhotos(shownPhotosRef.current);
+    setShowCredits(true);
+  }
+
+  function closeCredits() {
+    creditsOpenRef.current = false;
+    setShowCredits(false);
+    setCreditPhotos([]);
   }
 
   function applyVerdict(verdict: PlaybackKind) {
@@ -197,6 +247,7 @@ export default function Home() {
     songRef.current = null;
     setHoldPhotos(false);
     setShowNoLyricsSentence(false);
+    closeCredits();
     setPick({ hit, pickId: nextPickId.current });
     setSong(null);
     setPlayback(null);
@@ -263,7 +314,10 @@ export default function Home() {
       classifyPlayback(currentSong.durationMs, reportedDurationRef.current),
     );
 
-    if (previewModeRef.current) considerPreviewEnd(sample);
+    // A preview ends on the login panel. A full song ends on credits.
+    // "Unknown" means Spotify hasn't reported a length yet, so we wait.
+    if (lastVerdictRef.current === "preview") considerPreviewEnd(sample);
+    else if (lastVerdictRef.current === "full") considerSongEnd(sample);
   }
 
   function onLogin() {
@@ -297,14 +351,26 @@ export default function Home() {
     });
   }
 
-  function onPlayAgain() {
+  // Seek back to the start and play. The next "ended" reading is ignored
+  // until the music is actually moving again, so the jump to 0 doesn't
+  // look like another ending.
+  function restartPlayback() {
     acceptPlaybackAfterRef.current = performance.now();
     ignoreEndRef.current = true;
     nearEndRef.current = false;
-    setStep("invite");
-    setPromptOpen(!loginDismissedRef.current);
     commandNonce.current += 1;
     setPlayerCommand({ kind: "restart", nonce: commandNonce.current });
+  }
+
+  function onPlayAgain() {
+    restartPlayback();
+    setStep("invite");
+    setPromptOpen(!loginDismissedRef.current);
+  }
+
+  function onPlayCreditsAgain() {
+    closeCredits();
+    restartPlayback();
   }
 
   function onNewSearch() {
@@ -313,6 +379,7 @@ export default function Home() {
     songRef.current = null;
     setHoldPhotos(false);
     setShowNoLyricsSentence(false);
+    closeCredits();
     setPick(null);
     setSong(null);
     setPlayback(null);
@@ -323,6 +390,7 @@ export default function Home() {
 
   function onShownPhotos(photos: Photo[]) {
     shownPhotosRef.current = photos;
+    if (creditsOpenRef.current) setCreditPhotos(photos);
   }
 
   // White words need a dark full-screen behind them. That's the photos,
@@ -352,6 +420,9 @@ export default function Home() {
         />
       )}
       <main
+        // While credits cover the page, the search and player behind
+        // them should not take clicks or keyboard focus.
+        inert={showCredits ? true : undefined}
         className={`relative z-10 mx-auto flex w-full max-w-xl flex-col px-6 py-16 ${
           darkScreen ? "text-white" : ""
         }`}
@@ -387,6 +458,14 @@ export default function Home() {
           </div>
         )}
       </main>
+      {showCredits && song && (
+        <Credits
+          song={song}
+          photos={creditPhotos}
+          onPlayAgain={onPlayCreditsAgain}
+          onNewSearch={onNewSearch}
+        />
+      )}
     </div>
   );
 }

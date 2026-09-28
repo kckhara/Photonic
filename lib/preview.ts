@@ -48,12 +48,16 @@ export function classifyPlayback(
 }
 
 /**
- * A preview is over when playback has paused within the last second
- * of the clip, or the playhead jumps back to the start right after
- * being that close to the end. The same idea as the end-of-song rule,
- * but using the clip's length, not the full song's.
+ * Spotify never sends a "this finished" event.
+ * Playback counts as finished when the playhead is in the last second
+ * and the player has paused, or when it jumps back to the start right
+ * after being that close to the end.
+ *
+ * Pass the length Spotify is actually playing. For a preview that is
+ * the short clip. For a full song it is the whole track. The login
+ * prompt and the credits screen share this rule so they stay in step.
  */
-export function previewHasEnded(
+export function playbackHasEnded(
   positionMs: number,
   durationMs: number,
   isPaused: boolean,
@@ -63,7 +67,7 @@ export function previewHasEnded(
     return { ended: false, nearEnd: false };
   }
 
-  // Not the paused start of the clip. Only the last second counts.
+  // A pause at the very start is not the end. Only the last second counts.
   const nearEnd = positionMs > 0 && durationMs - positionMs <= 1000;
   const jumpedToStart = wasNearEnd && positionMs < 1000;
 
