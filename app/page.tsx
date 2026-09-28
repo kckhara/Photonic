@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Credits } from "@/components/Credits";
-import { NoLyricsMessage, NO_LYRICS_MESSAGE_MS } from "@/components/NoLyricsMessage";
+import { NoLyricsMessage, NO_LYRICS_INTRO_MS } from "@/components/NoLyricsMessage";
 import { PlayerBar, type PlayerCommand } from "@/components/PlayerBar";
 import { SearchBox } from "@/components/SearchBox";
 import {
@@ -41,9 +41,6 @@ export default function Home() {
   // True while the credits screen is up, so a second "ended" report
   // doesn't open it again.
   const creditsOpenRef = useRef(false);
-  const noLyricsTimer = useRef<number | null>(null);
-  // So the no-lyrics sentence only plays once per song.
-  const noLyricsShownRef = useRef(false);
   const reportedDurationRef = useRef<number | null>(null);
   // True once the playhead has been in the last second. The next reading
   // can then notice a jump back to the start.
@@ -53,6 +50,7 @@ export default function Home() {
   const acceptPlaybackAfterRef = useRef(0);
   const commandNonce = useRef(0);
   const songRef = useRef<SongPackage | null>(null);
+  const playbackRef = useRef<PlaybackSample | null>(null);
   const previewModeRef = useRef(false);
   const heardPlaybackRef = useRef(false);
   const pendingReloadRef = useRef(false);
@@ -89,50 +87,43 @@ export default function Home() {
   useEffect(() => {
     songRef.current = song;
     previewModeRef.current = previewMode;
+    playbackRef.current = playback;
   });
 
+  // No lyrics: black screen and the sentence while the playhead is still
+  // in the first 5 seconds. Pause holds it. Skip and rewind follow the song.
+  // A 30-second preview uses the same clock, so the sentence is there too.
   useEffect(() => {
-    return () => {
-      if (noLyricsTimer.current == null) return;
-      window.clearTimeout(noLyricsTimer.current);
-    };
-  }, []);
+    if (!needsNoLyricsMessage(song)) return;
 
-  function clearNoLyricsTimer() {
-    if (noLyricsTimer.current == null) return;
-    window.clearTimeout(noLyricsTimer.current);
-    noLyricsTimer.current = null;
-  }
+    let frame = 0;
+    let intro: boolean | null = null;
+
+    const tick = () => {
+      const position = estimatePositionMs(playbackRef.current);
+      const next = position < NO_LYRICS_INTRO_MS;
+      if (next !== intro) {
+        intro = next;
+        setShowNoLyricsSentence(next);
+        setHoldPhotos(next);
+      }
+      frame = requestAnimationFrame(tick);
+    };
+
+    tick();
+    return () => cancelAnimationFrame(frame);
+  }, [song]);
 
   function setStep(step: LoginPromptStep) {
     promptStepRef.current = step;
     setPromptStep(step);
   }
 
-  // The short "we can't find lyrics" sentence. Skipped during a preview —
-  // the login panel is the message in that case.
-  function beginSentence() {
-    if (noLyricsShownRef.current || previewModeRef.current) return;
-    if (!needsNoLyricsMessage(songRef.current)) return;
-    noLyricsShownRef.current = true;
-    clearNoLyricsTimer();
-    setShowNoLyricsSentence(true);
-    setHoldPhotos(true);
-    noLyricsTimer.current = window.setTimeout(() => {
-      noLyricsTimer.current = null;
-      setShowNoLyricsSentence(false);
-      setHoldPhotos(false);
-    }, NO_LYRICS_MESSAGE_MS);
-  }
-
   function enterPreview() {
     previewModeRef.current = true;
     setPreviewMode(true);
-    clearNoLyricsTimer();
-    setShowNoLyricsSentence(false);
-    setHoldPhotos(false);
-    // If they later reload into the full song, the sentence can still show.
-    noLyricsShownRef.current = false;
+    // The login panel can sit on the black screen. The sentence still
+    // follows the playhead, so the first 5 seconds stay quiet.
     if (promptStepRef.current === "ended") {
       setPromptOpen(true);
       return;
@@ -145,7 +136,6 @@ export default function Home() {
     setPreviewMode(false);
     setPromptOpen(false);
     setStep("invite");
-    if (needsNoLyricsMessage(songRef.current)) beginSentence();
   }
 
   // Shared "did playback just finish?" check. Returns null when this
@@ -242,8 +232,6 @@ export default function Home() {
 
   function onSelect(hit: SearchHit) {
     nextPickId.current += 1;
-    clearNoLyricsTimer();
-    noLyricsShownRef.current = false;
     songRef.current = null;
     setHoldPhotos(false);
     setShowNoLyricsSentence(false);
@@ -258,22 +246,17 @@ export default function Home() {
   function onSong(next: SongPackage | null) {
     songRef.current = next;
     setSong(next);
-    clearNoLyricsTimer();
-    noLyricsShownRef.current = false;
-    setShowNoLyricsSentence(false);
 
+    // The sentence is for a song with no lyrics, while it is still early.
+    // The playhead decides when it leaves, including on a preview.
     if (!needsNoLyricsMessage(next)) {
+      setShowNoLyricsSentence(false);
       setHoldPhotos(false);
       return;
     }
 
-    // Hold the photos briefly. If this is a preview, playback will
-    // cancel the sentence. If Spotify never answers, show it anyway.
     setHoldPhotos(true);
-    noLyricsTimer.current = window.setTimeout(() => {
-      noLyricsTimer.current = null;
-      beginSentence();
-    }, 2000);
+    setShowNoLyricsSentence(true);
   }
 
   function onPlayback(sample: PlaybackSample | null) {
@@ -374,8 +357,6 @@ export default function Home() {
   }
 
   function onNewSearch() {
-    clearNoLyricsTimer();
-    noLyricsShownRef.current = false;
     songRef.current = null;
     setHoldPhotos(false);
     setShowNoLyricsSentence(false);
@@ -413,10 +394,16 @@ export default function Home() {
       />
       {/* A light darkening, stronger near the words, so the photo stays
           visible and the search text can still be read on top of it. */}
-      {darkScreen && (
+      {darkScreen && !showNoLyricsSentence && (
         <div
           aria-hidden="true"
           className="pointer-events-none fixed inset-0 z-[1] bg-gradient-to-b from-black/70 via-black/20 to-black/30"
+        />
+      )}
+      {showNoLyricsSentence && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none fixed inset-0 z-[6] bg-black"
         />
       )}
       <main
@@ -429,8 +416,8 @@ export default function Home() {
       >
         <h1 className="mb-6 text-2xl font-semibold">Lyric Visualizer</h1>
         <SearchBox onSelect={onSelect} resetKey={searchResetKey} />
-        {showNoLyricsSentence && !previewMode && (
-          <div className="mt-10">
+        {showNoLyricsSentence && (
+          <div className="mt-10 text-center">
             <NoLyricsMessage />
           </div>
         )}

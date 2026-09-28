@@ -26,14 +26,15 @@ import type { Photo, PlaybackSample, Scene, SongPackage } from "@/lib/types";
  * a title card shows the album cover with the song title and artist.
  * The first photo fades in on top of that card.
  *
- * A song with no lyrics skips the title card. The page shows a short
- * sentence first (holdPhotos). This component keeps the screen dark and
- * downloads the upcoming photos, then starts them on the beat.
+ * A song with no lyrics skips the title card. For the first 5 seconds
+ * of the song the page holds a black screen and a short sentence
+ * (holdPhotos). Photos wait, then start from that moment.
  *
  * A Spotify preview is different. The clip is often from the middle of
  * the song, but the clock starts at 0, so lyric times would be wrong.
- * In preview mode we change photos on the beat only, and we skip the
- * "no lyrics" sentence — the login prompt covers that.
+ * Photos still change on the beat. A song with no lyrics keeps the
+ * black screen for the first 5 seconds of that clock, then the photos
+ * start.
  */
 
 type Slide = {
@@ -151,9 +152,9 @@ export function Visualizer({
       }
 
       // Sentence is still up. Fetch the next photos quietly so the first
-      // one can fade in as soon as the sentence leaves.
-      // A preview skips that sentence, so don't hold the photos for it.
-      if (holdPhotosRef.current && currentSong && !beatOnly) {
+      // one can fade in as soon as the sentence leaves. This includes a
+      // preview: the black screen lasts until the playhead passes 5 seconds.
+      if (holdPhotosRef.current && currentSong) {
         const positionMs = sample ? estimatePositionMs(sample) : 0;
         preloadAhead(
           upcomingPhotoSrcs(
@@ -169,9 +170,7 @@ export function Visualizer({
       }
 
       // No playback report yet. Songs with lyrics keep the title card.
-      // A song with no lyrics can still show the photo for 0:00, so the
-      // screen isn't blank after the sentence if Spotify is slow to start.
-      // A preview works the same way: photos on the beat, no title card.
+      // A preview has no title card — photos follow the beat instead.
       const waitingForPlayback =
         !sample && !beatOnly && currentSong?.lyricsType !== "none";
 

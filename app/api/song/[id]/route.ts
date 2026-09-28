@@ -14,7 +14,7 @@ import type { Scene, SongPackage } from "@/lib/types";
  *
  * Fallbacks (plan section 5, phase 7):
  * - No lyrics, or the lyrics service fails: curated photos, and the page
- *   shows "We can't find lyrics…" for a few seconds.
+ *   shows "We couldn't find any lyrics…" on black for the first 5 seconds.
  * - Plain lyrics (no timestamps): picture-words spread across the song.
  * - Missing tempo: 120 bpm.
  * - Spotify fails: the song still loads, and the player says it can't play.
