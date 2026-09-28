@@ -298,6 +298,18 @@ function SceneRow({ scene }: { scene: Scene }) {
         <span className="font-medium">{label}</span>
       </div>
 
+      {scene.video && (
+        <p className="text-sm opacity-70">
+          Clip by {scene.video.videographer}
+          {scene.keywordMentions != null && scene.keywordMentions > 1
+            ? " · repeated word (Mix plays this clip)"
+            : ""}
+        </p>
+      )}
+      {!scene.titleCard && scene.keyword && !scene.video && (
+        <p className="text-sm opacity-70">No landscape clip — photos stay.</p>
+      )}
+
       {scene.titleCard ? (
         <p className="text-sm opacity-70">
           Album cover, with the song title and artist, until the first lyric.

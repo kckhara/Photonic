@@ -4,6 +4,9 @@
  *
  * Edit the list freely. Scene 1 uses the first word, scene 2 the second,
  * and so on.
+ *
+ * "film" is not in this list. Pexels reads it as cameras, crews, and
+ * people filming, not as a look.
  */
 
 export const STYLE_WORDS = [
@@ -16,7 +19,6 @@ export const STYLE_WORDS = [
   "fog",
   "light",
   "abstract",
-  "film",
 ];
 
 /** The style word for a scene, based on where it sits in the song. */

@@ -5,7 +5,13 @@
  * Which photo to show at a moment in the song is section 5.3.
  */
 
-import type { Photo, PlaybackSample, Scene } from "@/lib/types";
+import type {
+  Photo,
+  PlaybackSample,
+  Scene,
+  VideoClip,
+  VisualMode,
+} from "@/lib/types";
 
 const DEFAULT_BPM = 120;
 
@@ -159,6 +165,96 @@ function sceneContaining(scenes: Scene[], positionMs: number): Scene | null {
   for (const scene of scenes) {
     if (positionMs >= scene.startMs && positionMs < scene.endMs) return scene;
   }
+  return null;
+}
+
+/**
+ * The scene for this moment in the song.
+ * After the song ends, the last scene stays so the screen doesn't go blank.
+ */
+export function sceneAtPosition(
+  scenes: Scene[],
+  positionMs: number,
+): Scene | null {
+  if (scenes.length === 0 || !Number.isFinite(positionMs)) return null;
+
+  const found = sceneContaining(scenes, positionMs);
+  if (found) return found;
+
+  const last = scenes[scenes.length - 1];
+  if (positionMs >= last.endMs) return last;
+  return null;
+}
+
+/**
+ * True when this scene should play its clip.
+ * Photos mode never does. Video mode does whenever a clip exists.
+ * Mix mode only does when the word shows up on more than one lyric line.
+ */
+export function sceneShowsClip(scene: Scene, mode: VisualMode): boolean {
+  if (mode === "photos" || scene.titleCard) return false;
+
+  const clip = scene.video;
+  if (!clip?.src || !(clip.durationMs > 0)) return false;
+  if (mode === "video") return true;
+
+  // Mix: a chorus (the word comes back). A one-off word stays a photo.
+  return (scene.keywordMentions ?? 1) > 1;
+}
+
+/**
+ * Which moment of the clip to show, in seconds.
+ *
+ * It is how far the song is into this scene, not a random spot in the
+ * file. If the clip is shorter than the scene, it loops. Pause and
+ * skip call this again, so they land on the same frame every time.
+ *
+ * Once the file has loaded, pass its real length. Pexels rounds the
+ * length to whole seconds, and seeking past the real end would fail.
+ */
+export function clipTimeSeconds(
+  scene: Scene,
+  positionMs: number,
+  fileDurationSec?: number,
+): number {
+  const fromApi = (scene.video?.durationMs ?? 0) / 1000;
+  const durationSec =
+    fileDurationSec != null &&
+    Number.isFinite(fileDurationSec) &&
+    fileDurationSec > 0
+      ? fileDurationSec
+      : fromApi;
+
+  if (!(durationSec > 0)) return 0;
+
+  const elapsedMs = positionMs - scene.startMs;
+  const spanMs = Math.max(0, scene.endMs - scene.startMs);
+  // Hold the last moment of the scene once the song has moved past it.
+  const intoMs = Math.min(Math.max(0, elapsedMs), Math.max(0, spanMs - 1));
+  return (intoMs / 1000) % durationSec;
+}
+
+/**
+ * The next clip we should download, and only that one.
+ * Large files: fetching several at once would stall a slow connection.
+ * Skips the clip already on screen.
+ */
+export function upcomingClip(
+  scenes: Scene[],
+  positionMs: number,
+  mode: VisualMode,
+): VideoClip | null {
+  const current = sceneAtPosition(scenes, positionMs);
+  const showing =
+    current && sceneShowsClip(current, mode) ? current.video : null;
+
+  for (const scene of scenes) {
+    if (scene.endMs <= positionMs) continue;
+    if (!sceneShowsClip(scene, mode) || !scene.video) continue;
+    if (showing && scene.video.id === showing.id) continue;
+    return scene.video;
+  }
+
   return null;
 }
 

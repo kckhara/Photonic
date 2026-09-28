@@ -1,6 +1,6 @@
 import { getDeezerTrack, type DeezerTrackDetails } from "@/lib/deezer";
 import { getLyrics, type Lyrics } from "@/lib/lrclib";
-import { attachPhotos } from "@/lib/pexels";
+import { attachPhotos, attachVideos } from "@/lib/pexels";
 import { scenesFromLyrics } from "@/lib/scenes";
 import { findSpotifyTrackIdByIsrc } from "@/lib/spotify";
 import { cleanBpm } from "@/lib/tempo";
@@ -10,7 +10,9 @@ import type { Scene, SongPackage } from "@/lib/types";
  * GET /api/song/908604612
  *
  * Builds the song package for one Deezer track id:
- * Deezer details → Spotify id → lyrics → picture-words → Pexels photos.
+ * Deezer details → Spotify id → lyrics → picture-words → Pexels photos,
+ * then one Pexels video per picture-word. If a video search fails, the
+ * photos for that song are kept.
  *
  * Fallbacks (plan section 5, phase 7):
  * - No lyrics, or the lyrics service fails: curated photos, and the page
@@ -155,6 +157,23 @@ async function scenesWithPhotos(
 }
 
 async function fillScenes(
+  drafts: Scene[],
+  durationMs: number,
+  bpm: number,
+): Promise<Scene[]> {
+  const withPhotos = await photosForScenes(drafts, durationMs, bpm);
+  if (withPhotos.length === 0) return [];
+
+  // Videos are extra. A failure here must not throw away the photos.
+  try {
+    return await attachVideos(withPhotos);
+  } catch (error) {
+    console.error("Video lookup failed", error);
+    return withPhotos;
+  }
+}
+
+async function photosForScenes(
   drafts: Scene[],
   durationMs: number,
   bpm: number,

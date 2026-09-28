@@ -9,6 +9,11 @@
  *
  * If the first lyric starts after 0:00, an opening title card fills that gap.
  * It has no picture-word. The visualizer draws the album cover there.
+ * A title or a spoken line stamped at the very start, with a long wait
+ * before the singing, is part of that intro — not a picture yet.
+ *
+ * Each scene remembers how many lyric lines used its word. Mix mode
+ * (Phase 9B) plays video only when that count is more than one.
  */
 
 import { keywordFromLine } from "@/lib/keywords";
@@ -110,7 +115,9 @@ function keywordsFromSyncedLyrics(synced: string): TimedKeyword[] {
     timed.push({ startMs: line.startMs, keyword });
   }
 
-  return limitKeywords(timed);
+  // Do this before the 20-word cap. Dropping later lines would open
+  // a fake gap and look like an intro.
+  return limitKeywords(dropUnsungOpening(timed));
 }
 
 function scenesFromPlainLyrics(plain: string, durationMs: number): Scene[] {
@@ -157,7 +164,9 @@ function parseSyncedLyrics(
 
     if (!text || stamps.length === 0 || isSectionLabel(text)) continue;
 
-    for (const startMs of stamps) {
+    // [00:00.00][00:28.00] Same lyric — the first stamp is a placeholder.
+    // Word-by-word stamps are only a moment apart, so those all stay.
+    for (const startMs of stampsToKeep(stamps)) {
       lines.push({ startMs, text });
     }
   }
@@ -180,6 +189,61 @@ function timestampToMs(
 
 function isSectionLabel(text: string): boolean {
   return /^[\[(].*[\])]$/.test(text);
+}
+
+// A stamp in the first moment of the song. Far enough from a real
+// second stamp that it isn't just the next word.
+const LEADING_STAMP_MS = 1500;
+const LEADING_GAP_MS = 8000;
+
+function stampsToKeep(stamps: number[]): number[] {
+  if (stamps.length < 2) return stamps;
+
+  const sorted = [...stamps].sort((a, b) => a - b);
+  const earliest = sorted[0];
+  const hasMuchLater = sorted.some((stamp) => stamp - earliest >= LEADING_GAP_MS);
+
+  if (earliest <= LEADING_STAMP_MS && hasMuchLater) {
+    return sorted.filter((stamp) => stamp > LEADING_STAMP_MS);
+  }
+
+  return sorted;
+}
+
+/**
+ * Some lyric files start with a title ("As It Was - Harry Styles") or a
+ * spoken line at 0:00, then a long pause, then the singing. Those early
+ * lines are not the first lyric. Drop them so the album cover stays up
+ * until the singing starts.
+ *
+ * A song that really begins with singing is left alone. Once two lines
+ * sit a normal distance apart, the vocals have started.
+ */
+function dropUnsungOpening(lines: TimedKeyword[]): TimedKeyword[] {
+  if (lines.length < 2) return lines;
+
+  const sorted = [...lines].sort((a, b) => a.startMs - b.startMs);
+  const gaps: number[] = [];
+  for (let index = 1; index < sorted.length; index += 1) {
+    gaps.push(sorted[index].startMs - sorted[index - 1].startMs);
+  }
+
+  const later = gaps.filter((gap) => gap > 0).sort((a, b) => a - b);
+  const median = later.length > 0 ? later[Math.floor(later.length / 2)] : 4000;
+
+  for (let index = 0; index < gaps.length; index += 1) {
+    const gap = gaps[index];
+
+    // A normal pause between two sung lines. The song has started.
+    if (gap >= 1000 && gap < LEADING_GAP_MS) return lines;
+
+    if (gap >= LEADING_GAP_MS && gap > median * 2) {
+      const lyricStart = sorted[index + 1].startMs;
+      return lines.filter((line) => line.startMs >= lyricStart);
+    }
+  }
+
+  return lines;
 }
 
 /**
@@ -216,9 +280,13 @@ function scenesFromTimedLines(
 ): Scene[] {
   const sorted = [...lines].sort((a, b) => a.startMs - b.startMs);
   const scenes: Scene[] = [];
+  // How many lines used each word, including lines merged into one scene.
+  // A chorus that repeats counts as more than one. Mix mode reads this.
+  const mentions = new Map<string, number>();
 
   for (const line of sorted) {
     if (durationMs > 0 && line.startMs >= durationMs) continue;
+    mentions.set(line.keyword, (mentions.get(line.keyword) ?? 0) + 1);
 
     const startMs = Math.max(0, line.startMs);
     const previous = scenes[scenes.length - 1];
@@ -247,7 +315,12 @@ function scenesFromTimedLines(
       : Math.max(durationMs, scenes[index].startMs);
   }
 
-  return scenes.filter((scene) => scene.endMs > scene.startMs);
+  return scenes
+    .filter((scene) => scene.endMs > scene.startMs)
+    .map((scene) => ({
+      ...scene,
+      keywordMentions: mentions.get(scene.keyword) ?? 1,
+    }));
 }
 
 /**

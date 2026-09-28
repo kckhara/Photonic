@@ -19,7 +19,13 @@ import {
   type PlaybackKind,
 } from "@/lib/preview";
 import { estimatePositionMs } from "@/lib/tempo";
-import type { Photo, PlaybackSample, SongPackage } from "@/lib/types";
+import type {
+  Photo,
+  PlaybackSample,
+  SongPackage,
+  VideoClip,
+  VisualMode,
+} from "@/lib/types";
 
 /**
  * Homepage: search, then the player, with photos filling the screen behind them.
@@ -38,6 +44,10 @@ export default function Home() {
   // Photos that really appeared on screen. The credits screen reads this
   // when the song ends, so preloaded-but-unseen photos stay off the list.
   const shownPhotosRef = useRef<Photo[]>([]);
+  const shownVideosRef = useRef<VideoClip[]>([]);
+  // True once they pick Photos / Video / Mix, so the saved choice
+  // doesn't overwrite that click.
+  const modeTouchedRef = useRef(false);
   // True while the credits screen is up, so a second "ended" report
   // doesn't open it again.
   const creditsOpenRef = useRef(false);
@@ -83,6 +93,9 @@ export default function Home() {
   // Copied when the song ends, then updated if the last photo finishes
   // fading in a moment later.
   const [creditPhotos, setCreditPhotos] = useState<Photo[]>([]);
+  const [creditVideos, setCreditVideos] = useState<VideoClip[]>([]);
+  // Photos until we can read what they chose earlier in this visit.
+  const [visualMode, setVisualMode] = useState<VisualMode>("photos");
 
   useEffect(() => {
     songRef.current = song;
@@ -113,6 +126,12 @@ export default function Home() {
     tick();
     return () => cancelAnimationFrame(frame);
   }, [song]);
+
+  // The Photos / Video / Mix choice lasts until this tab is closed.
+  useEffect(() => {
+    if (modeTouchedRef.current) return;
+    setVisualMode(readVisualMode());
+  }, []);
 
   function setStep(step: LoginPromptStep) {
     promptStepRef.current = step;
@@ -199,6 +218,7 @@ export default function Home() {
     }
     creditsOpenRef.current = true;
     setCreditPhotos(shownPhotosRef.current);
+    setCreditVideos(shownVideosRef.current);
     setShowCredits(true);
   }
 
@@ -206,6 +226,7 @@ export default function Home() {
     creditsOpenRef.current = false;
     setShowCredits(false);
     setCreditPhotos([]);
+    setCreditVideos([]);
   }
 
   function applyVerdict(verdict: PlaybackKind) {
@@ -241,6 +262,13 @@ export default function Home() {
     setPlayback(null);
     resetPreviewState();
     shownPhotosRef.current = [];
+    shownVideosRef.current = [];
+  }
+
+  function onVisualMode(mode: VisualMode) {
+    modeTouchedRef.current = true;
+    setVisualMode(mode);
+    rememberVisualMode(mode);
   }
 
   function onSong(next: SongPackage | null) {
@@ -366,12 +394,18 @@ export default function Home() {
     setPlayback(null);
     resetPreviewState();
     shownPhotosRef.current = [];
+    shownVideosRef.current = [];
     setSearchResetKey((current) => current + 1);
   }
 
   function onShownPhotos(photos: Photo[]) {
     shownPhotosRef.current = photos;
     if (creditsOpenRef.current) setCreditPhotos(photos);
+  }
+
+  function onShownVideos(videos: VideoClip[]) {
+    shownVideosRef.current = videos;
+    if (creditsOpenRef.current) setCreditVideos(videos);
   }
 
   // White words need a dark full-screen behind them. That's the photos,
@@ -390,7 +424,9 @@ export default function Home() {
         playback={playback}
         holdPhotos={holdPhotos}
         previewMode={previewMode}
+        visualMode={visualMode}
         onShownPhotos={onShownPhotos}
+        onShownVideos={onShownVideos}
       />
       {/* A light darkening, stronger near the words, so the photo stays
           visible and the search text can still be read on top of it. */}
@@ -422,6 +458,9 @@ export default function Home() {
           </div>
         )}
         {pick && (
+          <VisualModeToggle mode={visualMode} onChange={onVisualMode} />
+        )}
+        {pick && (
           <PlayerBar
             key={pick.pickId}
             selection={pick.hit}
@@ -449,10 +488,84 @@ export default function Home() {
         <Credits
           song={song}
           photos={creditPhotos}
+          videos={creditVideos}
           onPlayAgain={onPlayCreditsAgain}
           onNewSearch={onNewSearch}
         />
       )}
+    </div>
+  );
+}
+
+const VISUAL_MODE_KEY = "lyric-visualizer:visual-mode";
+
+/** What they last chose in this visit. Photos if they haven't chosen. */
+function readVisualMode(): VisualMode {
+  try {
+    const stored = sessionStorage.getItem(VISUAL_MODE_KEY);
+    if (stored === "photos" || stored === "video" || stored === "mix") {
+      return stored;
+    }
+  } catch {
+    // Some private windows block storage. Photos still works.
+  }
+  return "photos";
+}
+
+function rememberVisualMode(mode: VisualMode) {
+  try {
+    sessionStorage.setItem(VISUAL_MODE_KEY, mode);
+  } catch {
+    // The choice still applies until they leave the page.
+  }
+}
+
+/**
+ * Photos, Video, or Mix. Plain on purpose — the real design is Phase 10.
+ * Mix plays clips only on words that repeat, like a chorus.
+ */
+function VisualModeToggle({
+  mode,
+  onChange,
+}: {
+  mode: VisualMode;
+  onChange: (mode: VisualMode) => void;
+}) {
+  const options: { id: VisualMode; label: string }[] = [
+    { id: "photos", label: "Photos" },
+    { id: "video", label: "Video" },
+    { id: "mix", label: "Mix" },
+  ];
+
+  return (
+    <div className="mt-6">
+      <div className="flex gap-2" role="group" aria-label="Photos, video, or mix">
+        {options.map((option) => {
+          const selected = option.id === mode;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => onChange(option.id)}
+              className={`rounded px-3 py-2 text-sm ${
+                selected
+                  ? "bg-white font-medium text-black"
+                  : "border border-current"
+              }`}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-sm opacity-80">
+        {mode === "mix"
+          ? "Video on words that repeat, like a chorus. Photos on the rest."
+          : mode === "video"
+            ? "Clips where we have them. Photos fill in the rest."
+            : "Still photos, timed to the song."}
+      </p>
     </div>
   );
 }

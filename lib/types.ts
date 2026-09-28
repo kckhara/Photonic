@@ -21,6 +21,34 @@ export type Photo = {
   pexelsUrl: string;
 };
 
+/**
+ * One landscape video from Pexels. Phase 9B.
+ * The browser plays `src` muted. It does not include our API key.
+ */
+export type VideoClip = {
+  id: number;
+  // Mp4 file, chosen on the server (wide, and not huge).
+  src: string;
+  // A still frame. Shown while the file is still downloading.
+  poster: string;
+  width: number;
+  height: number;
+  // How long the file is, in milliseconds.
+  durationMs: number;
+  videographer: string;
+  videographerUrl: string;
+  // The clip's page on Pexels.
+  pexelsUrl: string;
+};
+
+/**
+ * What the full-screen picture is made of. Remembered until the tab closes.
+ * - photos: still pictures, as before
+ * - video: a clip per scene, with photos where Pexels had no clip
+ * - mix: clips only on words that repeat (a chorus); everything else stays photos
+ */
+export type VisualMode = "photos" | "video" | "mix";
+
 // A stretch of the song that shares one picture-word.
 export type Scene = {
   // When this scene begins and ends, in milliseconds.
@@ -29,6 +57,12 @@ export type Scene = {
   keyword: string;
   // One landscape photo for each time the picture changes. Not repeated later in the song.
   photos: Photo[];
+  // One landscape clip for this word. Null when Pexels had no wide clip —
+  // the photos above stay on screen for that stretch.
+  video?: VideoClip | null;
+  // How many lyric lines used this word. Mix mode plays a clip only when
+  // this is more than one (the word comes back, like a chorus).
+  keywordMentions?: number;
   // The opening card before the first lyric. It has no photos.
   titleCard?: boolean;
 };

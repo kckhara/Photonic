@@ -1,7 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef, type ReactNode } from "react";
-import type { Photo, SongPackage } from "@/lib/types";
+import type { Photo, SongPackage, VideoClip } from "@/lib/types";
 
 /**
  * The screen that appears when a full song finishes (plan section 5.5).
@@ -14,22 +14,26 @@ import type { Photo, SongPackage } from "@/lib/types";
  * the Spotify login prompt.
  *
  * Simple on purpose — the real design comes in Phase 10.
- * "Footage by" (videographers) waits for Phase 9B.
+ * Clips that actually played are listed under "Footage by".
  */
 
 export function Credits({
   song,
   photos,
+  videos,
   onPlayAgain,
   onNewSearch,
 }: {
   song: SongPackage;
   // Photos that really appeared on screen, in the order they appeared.
   photos: Photo[];
+  // Clips that really played, in the order they played.
+  videos: VideoClip[];
   onPlayAgain: () => void;
   onNewSearch: () => void;
 }) {
   const shown = uniquePhotos(photos);
+  const footage = uniqueClips(videos);
   const panelRef = useRef<HTMLDivElement>(null);
 
   // Open on the song title. The Play again button used to take focus
@@ -96,6 +100,41 @@ export function Credits({
           </section>
         )}
 
+        {footage.length > 0 && (
+          <section className="mt-12" aria-label="Footage by">
+            <h3 className="text-lg font-medium">Footage by</h3>
+            <ul className="mt-6 grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3">
+              {footage.map((clip) => {
+                const name = clip.videographer.trim() || "Unknown videographer";
+                return (
+                  <li key={clip.id} className="min-w-0">
+                    <OutboundLink href={clip.pexelsUrl} className="block">
+                      {clip.poster ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={clip.poster}
+                          alt={`Footage by ${name} on Pexels`}
+                          className="aspect-video w-full rounded object-cover"
+                        />
+                      ) : (
+                        <div className="aspect-video w-full rounded bg-white/10" />
+                      )}
+                    </OutboundLink>
+                    <p className="mt-2 text-sm leading-snug">
+                      <OutboundLink
+                        href={clip.videographerUrl.trim()}
+                        className="underline underline-offset-4"
+                      >
+                        {name}
+                      </OutboundLink>
+                    </p>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
+
         <div className="mt-12 flex flex-wrap gap-2">
           <button
             type="button"
@@ -115,7 +154,7 @@ export function Credits({
 
         <footer className="mt-auto pt-16 text-sm leading-relaxed text-white/80">
           <AttributionLink href="https://www.pexels.com">
-            Photos provided by Pexels
+            Photos and videos provided by Pexels
           </AttributionLink>
           <Separator />
           <AttributionLink href="https://lrclib.net">
@@ -133,6 +172,18 @@ export function Credits({
       </div>
     </div>
   );
+}
+
+/** Same clip can be reported twice. Keep the first time it played. */
+function uniqueClips(videos: VideoClip[]): VideoClip[] {
+  const seen = new Set<number>();
+  const unique: VideoClip[] = [];
+  for (const clip of videos) {
+    if (seen.has(clip.id)) continue;
+    seen.add(clip.id);
+    unique.push(clip);
+  }
+  return unique;
 }
 
 /** Same photo can be reported twice. Keep the first time it appeared. */

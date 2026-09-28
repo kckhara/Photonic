@@ -13,6 +13,11 @@
  * - A single word must be the whole word. "sign" does not match "design".
  * - A phrase must appear as written. "neon sign" matches "a neon sign at
  *   night", but the word "neon" on its own does not.
+ *
+ * "nothing phone" is the phone brand. A search for the lyric word
+ * "nothing" also returns that phone described only as a smartphone
+ * or an iPhone, so those are skipped too. Other songs can still
+ * show a phone.
  */
 
 export const PHOTO_BLOCKLIST = [
@@ -32,17 +37,22 @@ export const PHOTO_BLOCKLIST = [
   "office",
   "laptop",
   "posing",
+  "nothing phone",
 ];
+
+// Descriptions of the Nothing Phone that never say the brand name.
+const NOTHING_PHONE_WORDS = ["phone", "smartphone", "iphone", "cellphone"];
 
 /**
  * True when this description should be skipped.
  * An empty description is kept — we only skip photos we can tell are a problem.
+ * Pass the search words when you have them, so "nothing" can skip phones.
  */
-export function altIsBlocked(alt: string): boolean {
+export function altIsBlocked(alt: string, query = ""): boolean {
   const text = alt.toLowerCase();
   // Split on anything that is not a letter or number, so "sign." and
   // "sign," still count as the word "sign".
-  const words = text.split(/[^a-z0-9]+/).filter((word) => word.length > 0);
+  const words = wordsIn(text);
 
   for (const entry of PHOTO_BLOCKLIST) {
     const needle = entry.toLowerCase();
@@ -55,5 +65,19 @@ export function altIsBlocked(alt: string): boolean {
     if (words.includes(needle)) return true;
   }
 
+  if (
+    wordsIn(query).includes("nothing") &&
+    NOTHING_PHONE_WORDS.some((word) => words.includes(word))
+  ) {
+    return true;
+  }
+
   return false;
+}
+
+function wordsIn(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((word) => word.length > 0);
 }
