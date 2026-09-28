@@ -20,10 +20,12 @@ export async function GET(request: NextRequest) {
     const results = await searchDeezer(query);
     return Response.json(results);
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Something went wrong talking to Deezer.";
-    return Response.json({ error: message }, { status: 500 });
+    // The search box shows its own sentence. This one is here so a
+    // failed search never returns a raw Deezer error.
+    console.error("Search failed", error);
+    return Response.json(
+      { error: "Search isn’t available right now. Try again in a moment." },
+      { status: 500 },
+    );
   }
 }

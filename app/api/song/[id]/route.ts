@@ -1,5 +1,5 @@
-import { getDeezerTrack } from "@/lib/deezer";
-import { getLyrics } from "@/lib/lrclib";
+import { getDeezerTrack, type DeezerTrackDetails } from "@/lib/deezer";
+import { getLyrics, type Lyrics } from "@/lib/lrclib";
 import { attachPhotos } from "@/lib/pexels";
 import { scenesFromLyrics } from "@/lib/scenes";
 import { findSpotifyTrackIdByIsrc } from "@/lib/spotify";
@@ -11,8 +11,24 @@ import type { Scene, SongPackage } from "@/lib/types";
  *
  * Builds the song package for one Deezer track id:
  * Deezer details → Spotify id → lyrics → picture-words → Pexels photos.
- * Songs with no usable lyrics get curated photos instead of keyword scenes.
+ *
+ * Fallbacks (plan section 5, phase 7):
+ * - No lyrics, or the lyrics service fails: curated photos, and the page
+ *   shows "We can't find lyrics…" for a few seconds.
+ * - Plain lyrics (no timestamps): picture-words spread across the song.
+ * - Missing tempo: 120 bpm.
+ * - Spotify fails: the song still loads, and the player says it can't play.
+ * - Photos fail: the song still loads, and the page says the photos didn't.
+ * The browser only ever receives a short friendly error, never a raw one.
  */
+
+// Used when LRCLIB has nothing, or when the lyrics request itself fails.
+const MISSING_LYRICS: Lyrics = {
+  lyricsType: "none",
+  syncedLyrics: null,
+  plainLyrics: null,
+};
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -32,25 +48,24 @@ export async function GET(
 
     if (!track) {
       return Response.json(
-        { error: "No song found for that Deezer id." },
+        { error: "We couldn’t find that song. Try another search." },
         { status: 404 },
       );
     }
 
     // Spotify and lyrics don't depend on each other, so ask both at once.
+    // If either one fails, we still return the song.
     const [spotifyId, lyrics] = await Promise.all([
-      track.isrc ? findSpotifyTrackIdByIsrc(track.isrc) : Promise.resolve(null),
-      getLyrics({
-        title: track.title,
-        artist: track.artistName,
-        album: track.albumTitle,
-        durationSeconds: track.durationSeconds,
-      }),
+      lookupSpotifyId(track.isrc),
+      lookupLyrics(track),
     ]);
 
     const durationMs = track.durationSeconds * 1000;
+    // Missing, 0, or nonsense tempo becomes 120. See cleanBpm.
     const bpm = cleanBpm(track.bpm);
     const scenes = await scenesWithPhotos(
+      // Plain lyrics are spread evenly in here. No lyrics comes back empty,
+      // and scenesWithPhotos fills that with curated photos.
       scenesFromLyrics({
         lyricsType: lyrics.lyricsType,
         syncedLyrics: lyrics.syncedLyrics,
@@ -76,11 +91,46 @@ export async function GET(
 
     return Response.json(song);
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Something went wrong while loading this song.";
-    return Response.json({ error: message }, { status: 500 });
+    // Deezer failed, or something else we can't work around.
+    // The details stay in the terminal. The page gets one plain sentence.
+    console.error("Song package failed", error);
+    return Response.json(
+      { error: "We couldn’t load this song. Please try again." },
+      { status: 500 },
+    );
+  }
+}
+
+/**
+ * Spotify id for this song, or null if Spotify has no match or is down.
+ * A failure here must not throw — the page already explains a missing player.
+ */
+async function lookupSpotifyId(isrc: string | null): Promise<string | null> {
+  if (!isrc) return null;
+
+  try {
+    return await findSpotifyTrackIdByIsrc(isrc);
+  } catch (error) {
+    console.error("Spotify lookup failed", error);
+    return null;
+  }
+}
+
+/**
+ * Lyrics for this song. If the lyrics service is down, treat it like
+ * an instrumental: no words, and the page will use curated photos.
+ */
+async function lookupLyrics(track: DeezerTrackDetails): Promise<Lyrics> {
+  try {
+    return await getLyrics({
+      title: track.title,
+      artist: track.artistName,
+      album: track.albumTitle,
+      durationSeconds: track.durationSeconds,
+    });
+  } catch (error) {
+    console.error("Lyrics lookup failed", error);
+    return MISSING_LYRICS;
   }
 }
 
@@ -90,6 +140,21 @@ export async function GET(
  * No scenes means the lyrics had nothing to picture, so use curated photos.
  */
 async function scenesWithPhotos(
+  drafts: Scene[],
+  durationMs: number,
+  bpm: number,
+): Promise<Scene[]> {
+  try {
+    return await fillScenes(drafts, durationMs, bpm);
+  } catch (error) {
+    // A bad Pexels key or a Pexels outage. Return no photos so the page
+    // can say so, and still play the song.
+    console.error("Photo lookup failed", error);
+    return [];
+  }
+}
+
+async function fillScenes(
   drafts: Scene[],
   durationMs: number,
   bpm: number,

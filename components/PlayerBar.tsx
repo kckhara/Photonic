@@ -114,11 +114,9 @@ export function PlayerBar({
       } catch (error) {
         if (cancelled || isAbortError(error)) return;
         setStatus("error");
-        setMessage(
-          error instanceof Error
-            ? error.message
-            : "We couldn’t load this song. Please try again.",
-        );
+        // Only show sentences we wrote. A network failure or a surprise
+        // from the server becomes one plain line, not a raw error.
+        setMessage(friendlyLoadMessage(error));
       }
     }
 
@@ -147,6 +145,12 @@ export function PlayerBar({
       {status === "error" && (
         <p className="text-sm" role="status">
           {message}
+        </p>
+      )}
+
+      {status === "ready" && song && !hasPhotos(song) && (
+        <p className="text-sm" role="status">
+          We couldn’t load photos for this song. Please try again.
         </p>
       )}
 
@@ -415,17 +419,12 @@ async function resolveDeezerId(
   if (selection.type === "song") return selection.id;
 
   const response = await fetch(`/api/artist-top/${selection.id}`, { signal });
-  const body = (await response.json()) as {
-    deezerId?: number;
-    error?: string;
-  };
+  const body = await readJson<{ deezerId?: number }>(response);
 
   if (response.status === 404) return null;
 
-  if (!response.ok) {
-    throw new Error(
-      body.error || "We couldn’t load this musician. Please try again.",
-    );
+  if (!response.ok || !body) {
+    throw new Error("We couldn’t load this musician. Please try again.");
   }
 
   return typeof body.deezerId === "number" ? body.deezerId : null;
@@ -440,14 +439,14 @@ async function fetchSongPackage(
   signal: AbortSignal,
 ): Promise<SongPackage> {
   const response = await fetch(`/api/song/${deezerId}`, { signal });
-  const body = (await response.json()) as Partial<SongPackage> & {
-    error?: string;
-  };
+  const body = await readJson<Partial<SongPackage>>(response);
 
-  if (!response.ok) {
-    throw new Error(
-      body.error || "We couldn’t load this song. Please try again.",
-    );
+  if (response.status === 404) {
+    throw new Error("We couldn’t find that song. Try another search.");
+  }
+
+  if (!response.ok || !body) {
+    throw new Error("We couldn’t load this song. Please try again.");
   }
 
   if (typeof body.deezerId !== "number" || !body.title || !body.artist) {
@@ -470,6 +469,30 @@ async function fetchSongPackage(
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
+}
+
+/**
+ * Read a JSON body. Returns null if the server sent something that
+ * isn't JSON, so the caller can show a friendly message instead.
+ */
+async function readJson<T>(response: Response): Promise<T | null> {
+  try {
+    return (await response.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+/** Our messages start with "We ". Anything else is replaced. */
+function friendlyLoadMessage(error: unknown): string {
+  if (error instanceof Error && error.message.startsWith("We ")) {
+    return error.message;
+  }
+  return "We couldn’t load this song. Please try again.";
+}
+
+function hasPhotos(song: SongPackage): boolean {
+  return song.scenes.some((scene) => scene.photos.length > 0);
 }
 
 function tryPlay(controller: EmbedController) {

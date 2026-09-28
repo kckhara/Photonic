@@ -25,6 +25,10 @@ import type { Photo, PlaybackSample, SongPackage } from "@/lib/types";
  * Before the first lyric, and while the first photo is still downloading,
  * a title card shows the album cover with the song title and artist.
  * The first photo fades in on top of that card.
+ *
+ * A song with no lyrics skips the title card. The page shows a short
+ * sentence first (holdPhotos). This component keeps the screen dark and
+ * downloads the upcoming photos, then starts them on the beat.
  */
 
 type Slide = {
@@ -40,10 +44,13 @@ type Slide = {
 export function Visualizer({
   song,
   playback,
+  holdPhotos = false,
   onShownPhotos,
 }: {
   song: SongPackage | null;
   playback: PlaybackSample | null;
+  // True while the no-lyrics sentence is on screen. Photos wait.
+  holdPhotos?: boolean;
   // Called with every photo that has actually appeared. Later, the
   // credits screen lists the photographers from this list.
   onShownPhotos?: (photos: Photo[]) => void;
@@ -51,6 +58,7 @@ export function Visualizer({
   const songRef = useRef(song);
   const playbackRef = useRef(playback);
   const onShownRef = useRef(onShownPhotos);
+  const holdPhotosRef = useRef(holdPhotos);
 
   const [slides, setSlides] = useState<Slide[]>([]);
   const [shownPhotos, setShownPhotos] = useState<Photo[]>([]);
@@ -66,6 +74,7 @@ export function Visualizer({
     playbackRef.current = playback;
     onShownRef.current = onShownPhotos;
     slidesRef.current = slides;
+    holdPhotosRef.current = holdPhotos;
   });
 
   // Which photo the loop last chose. Undefined until the first choice,
@@ -97,14 +106,41 @@ export function Visualizer({
       const currentSong = songRef.current;
       const sample = playbackRef.current;
 
-      if (!currentSong || !sample || currentSong.scenes.length === 0) {
+      // Sentence is still up. Fetch the next photos quietly so the first
+      // one can fade in as soon as the sentence leaves.
+      if (holdPhotosRef.current && currentSong) {
+        const positionMs = sample ? estimatePositionMs(sample) : 0;
+        preloadAhead(
+          upcomingPhotoSrcs(
+            currentSong.scenes,
+            positionMs,
+            currentSong.bpm,
+            3,
+          ),
+          preloadedRef.current,
+        );
+        frame = requestAnimationFrame(tick);
+        return;
+      }
+
+      // No playback report yet. Songs with lyrics keep the title card.
+      // A song with no lyrics can still show the photo for 0:00, so the
+      // screen isn't blank after the sentence if Spotify is slow to start.
+      const waitingForPlayback =
+        !sample && currentSong?.lyricsType !== "none";
+
+      if (
+        !currentSong ||
+        currentSong.scenes.length === 0 ||
+        waitingForPlayback
+      ) {
         if (currentSong) holdTitle(true);
         if (chosenIdRef.current !== undefined) {
           chosenIdRef.current = undefined;
           setSlides([]);
         }
       } else {
-        const positionMs = estimatePositionMs(sample);
+        const positionMs = sample ? estimatePositionMs(sample) : 0;
         // Rewind into the intro brings the title card back.
         if (isTitleCardMoment(currentSong.scenes, positionMs)) holdTitle(true);
         const next = frameAtPosition(
@@ -201,7 +237,17 @@ export function Visualizer({
     setTitleHeld(next);
   }
 
-  if (!song || (!titleHeld && slides.length === 0)) return null;
+  if (!song) return null;
+
+  const noLyrics = song.lyricsType === "none";
+  const hasPhotos = song.scenes.some((scene) => scene.photos.length > 0);
+  // No lyrics and no photos: nothing to draw. The player explains it.
+  if (noLyrics && !hasPhotos) return null;
+
+  const showTitle = titleHeld && !noLyrics && !holdPhotos;
+  // Keep the dark screen up for a no-lyrics song until the first photo
+  // is chosen, so the page doesn't flash empty between the sentence and the pictures.
+  if (!noLyrics && !showTitle && slides.length === 0) return null;
 
   const fadeMs = crossfadeMs(song?.bpm ?? 120);
   // Pexels sends an average color. Show it while the file is still arriving
@@ -212,21 +258,22 @@ export function Visualizer({
   return (
     <div
       className="pointer-events-none fixed inset-0 z-0 overflow-hidden"
-      style={{ backgroundColor: placeholder }}
+      style={{ backgroundColor: holdPhotos ? "#000000" : placeholder }}
       aria-hidden="true"
     >
-      {titleHeld && <TitleCard song={song} />}
-      {slides.map((slide, index) => (
-        <FadePhoto
-          key={slide.token}
-          slide={slide}
-          fadeMs={fadeMs}
-          // Above the title card, so the first photo can fade in over it.
-          zIndex={index + 1}
-          onReveal={revealSlide}
-          onSettled={settleSlide}
-        />
-      ))}
+      {showTitle && <TitleCard song={song} />}
+      {!holdPhotos &&
+        slides.map((slide, index) => (
+          <FadePhoto
+            key={slide.token}
+            slide={slide}
+            fadeMs={fadeMs}
+            // Above the title card, so the first photo can fade in over it.
+            zIndex={index + 1}
+            onReveal={revealSlide}
+            onSettled={settleSlide}
+          />
+        ))}
     </div>
   );
 }

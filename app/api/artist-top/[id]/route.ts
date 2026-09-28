@@ -32,10 +32,10 @@ export async function GET(
 
     return Response.json(song);
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Something went wrong while loading this artist.";
-    return Response.json({ error: message }, { status: 500 });
+    console.error("Artist top song failed", error);
+    return Response.json(
+      { error: "We couldn’t load this musician. Please try again." },
+      { status: 500 },
+    );
   }
 }
