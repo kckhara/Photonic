@@ -23,8 +23,11 @@ type SearchStatus = "idle" | "loading" | "done" | "error";
  */
 export function SearchBox({
   onSelect,
+  resetKey = 0,
 }: {
   onSelect: (hit: SearchHit) => void;
+  // Bumps when "New search" is clicked, so the field clears.
+  resetKey?: number;
 }) {
   const [query, setQuery] = useState("");
   const [songs, setSongs] = useState<SongHit[]>([]);
@@ -35,6 +38,24 @@ export function SearchBox({
   const [activeIndex, setActiveIndex] = useState(-1);
 
   const boxRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [seenReset, setSeenReset] = useState(resetKey);
+
+  // "New search" clears the field. Focus happens after paint, below.
+  if (resetKey !== seenReset) {
+    setSeenReset(resetKey);
+    setQuery("");
+    setSongs([]);
+    setArtists([]);
+    setStatus("idle");
+    setIsOpen(false);
+    setActiveIndex(-1);
+  }
+
+  useEffect(() => {
+    if (resetKey === 0) return;
+    inputRef.current?.focus();
+  }, [resetKey]);
 
   // One flat list so arrow keys can move through artists, then songs.
   const items: SearchHit[] = [...artists, ...songs];
@@ -164,6 +185,7 @@ export function SearchBox({
           directly under the field and not under the hint text. */}
       <div className="relative">
         <input
+          ref={inputRef}
           id="song-search"
           type="text"
           value={query}

@@ -52,6 +52,12 @@ function spotifyGlobals(): SpotifyGlobals {
 
 type LoadStatus = "loading" | "ready" | "error";
 
+// The page asks the player to do one of these. `nonce` changes every
+// request so the same action can run again (play again, then play again).
+export type PlayerCommand =
+  | { kind: "reload"; nonce: number; positionMs: number }
+  | { kind: "restart"; nonce: number };
+
 /**
  * Sits under the search box after a song or musician is chosen.
  * Loads that song from our server, then plays it on Spotify.
@@ -62,10 +68,19 @@ export function PlayerBar({
   selection,
   onSong,
   onPlayback,
+  previewMode = false,
+  onShowLoginPrompt,
+  playerCommand = null,
 }: {
   selection: SearchHit;
   onSong: (song: SongPackage | null) => void;
   onPlayback: (playback: PlaybackSample | null) => void;
+  // True while Spotify is only playing a 30-second preview.
+  previewMode?: boolean;
+  // The "Log in for full songs" link in the button row.
+  onShowLoginPrompt?: () => void;
+  // Reload the embed, or send the preview back to the start.
+  playerCommand?: PlayerCommand | null;
 }) {
   // Kept in refs so a new render doesn't restart the song load.
   const onSongRef = useRef(onSong);
@@ -78,6 +93,25 @@ export function PlayerBar({
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [song, setSong] = useState<SongPackage | null>(null);
   const [message, setMessage] = useState(() => loadingMessage(selection));
+  // A new generation throws away the Spotify embed and builds a fresh one,
+  // so a login in another tab can take effect. startAtMs is where to resume.
+  const [playerSlot, setPlayerSlot] = useState({ generation: 0, startAtMs: 0 });
+  const [restartNonce, setRestartNonce] = useState(0);
+  const [handledNonce, setHandledNonce] = useState<number | null>(null);
+
+  // Apply each request once, as soon as it arrives, so the embed
+  // rebuilds in the same turn as the click.
+  if (playerCommand && playerCommand.nonce !== handledNonce) {
+    setHandledNonce(playerCommand.nonce);
+    if (playerCommand.kind === "reload") {
+      setPlayerSlot((current) => ({
+        generation: current.generation + 1,
+        startAtMs: Math.max(0, playerCommand.positionMs),
+      }));
+    } else {
+      setRestartNonce(playerCommand.nonce);
+    }
+  }
 
   // Each new choice starts a fresh load. If the person picks something else
   // before this finishes, we cancel so an old result can't overwrite the new one.
@@ -162,7 +196,12 @@ export function PlayerBar({
 
       {status === "ready" && song?.spotifyId && (
         <SpotifyPlayer
+          key={playerSlot.generation}
           spotifyId={song.spotifyId}
+          startAtMs={playerSlot.startAtMs}
+          restartNonce={restartNonce}
+          showLoginLink={previewMode}
+          onShowLoginPrompt={onShowLoginPrompt}
           onPlayback={(sample) => onPlaybackRef.current(sample)}
         />
       )}
@@ -176,9 +215,18 @@ export function PlayerBar({
  */
 function SpotifyPlayer({
   spotifyId,
+  startAtMs,
+  restartNonce,
+  showLoginLink,
+  onShowLoginPrompt,
   onPlayback,
 }: {
   spotifyId: string;
+  // 0 on a normal song start. After "Reload player", the moment to jump back to.
+  startAtMs: number;
+  restartNonce: number;
+  showLoginLink: boolean;
+  onShowLoginPrompt?: () => void;
   onPlayback: (playback: PlaybackSample | null) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -187,6 +235,9 @@ function SpotifyPlayer({
   // The last position we told the photos about, including pause and skip.
   const sampleRef = useRef<PlaybackSample | null>(null);
   const onPlaybackRef = useRef(onPlayback);
+  // So "Play again" doesn't also run on the first render, or again
+  // when "Reload player" builds a brand-new embed.
+  const seenRestart = useRef(restartNonce);
 
   useEffect(() => {
     onPlaybackRef.current = onPlayback;
@@ -196,6 +247,22 @@ function SpotifyPlayer({
     sampleRef.current = sample;
     onPlaybackRef.current(sample);
   }
+
+  function emit(data: PlaybackUpdate | null, positionMs: number, isPlaying: boolean) {
+    publish({
+      positionMs,
+      isPlaying,
+      isPaused: data?.isPaused === true,
+      receivedAt: performance.now(),
+      reportedDurationMs: reportedDuration(data, sampleRef.current),
+    });
+  }
+
+  const emitRef = useRef(emit);
+
+  useEffect(() => {
+    emitRef.current = emit;
+  });
 
   const [playerReady, setPlayerReady] = useState(false);
   const [playback, setPlayback] = useState<PlaybackUpdate | null>(null);
@@ -231,6 +298,23 @@ function SpotifyPlayer({
           controllerRef.current = controller;
           setPlayerReady(true);
 
+          // "Reload player" builds a new embed. Spotify starts it at 0,
+          // so we jump back to the moment they were hearing.
+          let seekAttempts = 0;
+          function resumeAtSavedPosition(currentPositionMs?: number) {
+            if (cancelled || startAtMs <= 500) return;
+            if (
+              currentPositionMs != null &&
+              Math.abs(currentPositionMs - startAtMs) < 1500
+            ) {
+              return;
+            }
+            if (seekAttempts >= 2) return;
+            seekAttempts += 1;
+            controller.seek(startAtMs / 1000);
+            tryPlay(controller);
+          }
+
           controller.addListener("playback_update", (event) => {
             // Ignore reports from a player we're already tearing down.
             if (cancelled) return;
@@ -238,13 +322,16 @@ function SpotifyPlayer({
             const data = readPlayback(event);
             playbackRef.current = data;
             setPlayback(data);
+            const positionMs =
+              typeof data.position === "number" ? data.position : 0;
             // Hand the photos this reading, stamped with the time it arrived
             // so they can glide forward until Spotify speaks again.
-            publish({
-              positionMs: typeof data.position === "number" ? data.position : 0,
-              isPlaying: data.isPaused === false && data.isBuffering !== true,
-              receivedAt: performance.now(),
-            });
+            emitRef.current(
+              data,
+              positionMs,
+              data.isPaused === false && data.isBuffering !== true,
+            );
+            resumeAtSavedPosition(positionMs);
           });
 
           // Try to start as soon as the player exists, and again when Spotify
@@ -252,9 +339,12 @@ function SpotifyPlayer({
           // page, and the player lives on Spotify's site, so some browsers
           // still wait for the Play button.
           controller.addListener("ready", () => {
-            if (!cancelled) tryPlay(controller);
+            if (cancelled) return;
+            if (startAtMs > 500) resumeAtSavedPosition();
+            else tryPlay(controller);
           });
-          tryPlay(controller);
+          if (startAtMs > 500) resumeAtSavedPosition();
+          else tryPlay(controller);
         },
       );
     }
@@ -285,7 +375,31 @@ function SpotifyPlayer({
       controllerRef.current = null;
       host.replaceChildren();
     };
-  }, [spotifyId]);
+  }, [spotifyId, startAtMs]);
+
+  // "Play again" on the end-of-preview panel. The embed stays; we just
+  // send it back to the start of the clip.
+  useEffect(() => {
+    if (seenRestart.current === restartNonce) return;
+    seenRestart.current = restartNonce;
+
+    const controller = controllerRef.current;
+    if (!controller) return;
+
+    controller.seek(0);
+    tryPlay(controller);
+
+    const previous = playbackRef.current;
+    const nextPlayback: PlaybackUpdate = {
+      ...previous,
+      position: 0,
+      isPaused: false,
+      isBuffering: false,
+    };
+    playbackRef.current = nextPlayback;
+    setPlayback(nextPlayback);
+    emitRef.current(nextPlayback, 0, true);
+  }, [restartNonce]);
 
   function onPlayPause() {
     const controller = controllerRef.current;
@@ -325,11 +439,7 @@ function SpotifyPlayer({
     };
     playbackRef.current = nextPlayback;
     setPlayback(nextPlayback);
-    publish({
-      positionMs,
-      isPlaying: sampleRef.current?.isPlaying ?? false,
-      receivedAt: performance.now(),
-    });
+    emit(nextPlayback, positionMs, sampleRef.current?.isPlaying ?? false);
   }
 
   function noteTransport(isPlaying: boolean) {
@@ -343,11 +453,7 @@ function SpotifyPlayer({
     };
     playbackRef.current = nextPlayback;
     setPlayback(nextPlayback);
-    publish({
-      positionMs,
-      isPlaying,
-      receivedAt: performance.now(),
-    });
+    emit(nextPlayback, positionMs, isPlaying);
   }
 
   // False until Spotify tells us the song is actually playing.
@@ -383,6 +489,15 @@ function SpotifyPlayer({
         >
           +10s
         </button>
+        {showLoginLink && (
+          <button
+            type="button"
+            onClick={onShowLoginPrompt}
+            className="px-1 py-2 text-sm underline underline-offset-2"
+          >
+            Log in for full songs
+          </button>
+        )}
       </div>
 
       <p className="text-sm opacity-70">
@@ -493,6 +608,26 @@ function friendlyLoadMessage(error: unknown): string {
 
 function hasPhotos(song: SongPackage): boolean {
   return song.scenes.some((scene) => scene.photos.length > 0);
+}
+
+/**
+ * Spotify's reported length, or the previous one if this update
+ * didn't include it. Seeking sometimes leaves the length out.
+ */
+function reportedDuration(
+  data: PlaybackUpdate | null,
+  previous: PlaybackSample | null,
+): number | undefined {
+  if (typeof data?.duration === "number" && data.duration > 0) {
+    return data.duration;
+  }
+  if (
+    typeof previous?.reportedDurationMs === "number" &&
+    previous.reportedDurationMs > 0
+  ) {
+    return previous.reportedDurationMs;
+  }
+  return undefined;
 }
 
 function tryPlay(controller: EmbedController) {

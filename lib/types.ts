@@ -65,8 +65,19 @@ export type PlaybackSample = {
   /** True only while the song is actually moving forward. */
   isPlaying: boolean;
   /**
+   * True when Spotify says the song is paused.
+   * A brief buffer is not a pause. The preview-end check uses this
+   * so a loading hiccup doesn't look like the clip finished.
+   */
+  isPaused: boolean;
+  /**
    * When this reading arrived, from performance.now().
    * Used to guess how far the song has moved since then.
    */
   receivedAt: number;
+  /**
+   * How long Spotify says this playback is, in milliseconds.
+   * A preview is about 30,000. Missing until the player sends a length.
+   */
+  reportedDurationMs?: number;
 };

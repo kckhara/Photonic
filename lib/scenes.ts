@@ -69,6 +69,38 @@ export function curatedScenes(durationMs: number, photos: Photo[]): Scene[] {
   ];
 }
 
+/**
+ * One scene that walks through every photo on the beat.
+ * Used while Spotify is playing a 30-second preview.
+ *
+ * A preview is often a clip from the middle of the song, but Spotify's
+ * clock starts at 0 for that clip. Lyric timestamps would point at the
+ * wrong moment, so we ignore them and change photos on the beat instead.
+ */
+export function beatOnlyScenes(scenes: Scene[], durationMs: number): Scene[] {
+  const photos: Photo[] = [];
+  const seen = new Set<number>();
+
+  for (const scene of scenes) {
+    for (const photo of scene.photos) {
+      if (seen.has(photo.id)) continue;
+      seen.add(photo.id);
+      photos.push(photo);
+    }
+  }
+
+  if (photos.length === 0) return [];
+
+  return [
+    {
+      startMs: 0,
+      endMs: Math.max(durationMs, 1),
+      keyword: "",
+      photos,
+    },
+  ];
+}
+
 function keywordsFromSyncedLyrics(synced: string): TimedKeyword[] {
   const timed: TimedKeyword[] = [];
 

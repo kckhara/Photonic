@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { isTitleCardMoment } from "@/lib/scenes";
+import { beatOnlyScenes, isTitleCardMoment } from "@/lib/scenes";
 import {
   crossfadeMs,
   estimatePositionMs,
   frameAtPosition,
   upcomingPhotoSrcs,
 } from "@/lib/tempo";
-import type { Photo, PlaybackSample, SongPackage } from "@/lib/types";
+import type { Photo, PlaybackSample, Scene, SongPackage } from "@/lib/types";
 
 /**
  * Full-screen photos behind the search bar and player.
@@ -29,6 +29,11 @@ import type { Photo, PlaybackSample, SongPackage } from "@/lib/types";
  * A song with no lyrics skips the title card. The page shows a short
  * sentence first (holdPhotos). This component keeps the screen dark and
  * downloads the upcoming photos, then starts them on the beat.
+ *
+ * A Spotify preview is different. The clip is often from the middle of
+ * the song, but the clock starts at 0, so lyric times would be wrong.
+ * In preview mode we change photos on the beat only, and we skip the
+ * "no lyrics" sentence — the login prompt covers that.
  */
 
 type Slide = {
@@ -45,12 +50,16 @@ export function Visualizer({
   song,
   playback,
   holdPhotos = false,
+  previewMode = false,
   onShownPhotos,
 }: {
   song: SongPackage | null;
   playback: PlaybackSample | null;
   // True while the no-lyrics sentence is on screen. Photos wait.
   holdPhotos?: boolean;
+  // True while Spotify is playing a 30-second preview. Photos follow
+  // the beat instead of the lyric timestamps.
+  previewMode?: boolean;
   // Called with every photo that has actually appeared. Later, the
   // credits screen lists the photographers from this list.
   onShownPhotos?: (photos: Photo[]) => void;
@@ -59,6 +68,7 @@ export function Visualizer({
   const playbackRef = useRef(playback);
   const onShownRef = useRef(onShownPhotos);
   const holdPhotosRef = useRef(holdPhotos);
+  const previewModeRef = useRef(previewMode);
 
   const [slides, setSlides] = useState<Slide[]>([]);
   const [shownPhotos, setShownPhotos] = useState<Photo[]>([]);
@@ -75,11 +85,25 @@ export function Visualizer({
     onShownRef.current = onShownPhotos;
     slidesRef.current = slides;
     holdPhotosRef.current = holdPhotos;
+    previewModeRef.current = previewMode;
   });
 
   // Which photo the loop last chose. Undefined until the first choice,
   // so "nothing yet" is different from "no photo at this moment".
   const chosenIdRef = useRef<number | null | undefined>(undefined);
+  const skipPreviewReset = useRef(true);
+
+  // Lyric timing and beat-only timing choose different photos.
+  // Forget the last choice so the next frame can switch.
+  // Skip the first run so loading a song doesn't restart the fade.
+  useEffect(() => {
+    if (skipPreviewReset.current) {
+      skipPreviewReset.current = false;
+      return;
+    }
+    chosenIdRef.current = undefined;
+  }, [previewMode]);
+
   const tokenRef = useRef(0);
   const preloadedRef = useRef<Set<string>>(new Set());
   const revealedRef = useRef<Set<number>>(new Set());
@@ -96,19 +120,40 @@ export function Visualizer({
     onShownRef.current?.(shownPhotos);
   }, [shownPhotos]);
 
+  function holdTitle(next: boolean) {
+    if (titleHeldRef.current === next) return;
+    titleHeldRef.current = next;
+    setTitleHeld(next);
+  }
+
   // Runs every frame. Picks the photo for the current position and,
   // if it changed, starts a fade. Also asks the browser to download
   // the next 3 photos before we need them.
   useEffect(() => {
     let frame = 0;
+    // Built once per song, not on every frame.
+    let beatSong: SongPackage | null = null;
+    let beatScenes: Scene[] = [];
 
     const tick = () => {
       const currentSong = songRef.current;
       const sample = playbackRef.current;
+      // Preview clips don't line up with lyric times. Use one beat-based
+      // sequence instead of the lyric scenes.
+      const beatOnly = previewModeRef.current;
+      let scenes = currentSong?.scenes ?? [];
+      if (currentSong && beatOnly) {
+        if (beatSong !== currentSong) {
+          beatSong = currentSong;
+          beatScenes = beatOnlyScenes(currentSong.scenes, currentSong.durationMs);
+        }
+        scenes = beatScenes;
+      }
 
       // Sentence is still up. Fetch the next photos quietly so the first
       // one can fade in as soon as the sentence leaves.
-      if (holdPhotosRef.current && currentSong) {
+      // A preview skips that sentence, so don't hold the photos for it.
+      if (holdPhotosRef.current && currentSong && !beatOnly) {
         const positionMs = sample ? estimatePositionMs(sample) : 0;
         preloadAhead(
           upcomingPhotoSrcs(
@@ -126,15 +171,13 @@ export function Visualizer({
       // No playback report yet. Songs with lyrics keep the title card.
       // A song with no lyrics can still show the photo for 0:00, so the
       // screen isn't blank after the sentence if Spotify is slow to start.
+      // A preview works the same way: photos on the beat, no title card.
       const waitingForPlayback =
-        !sample && currentSong?.lyricsType !== "none";
+        !sample && !beatOnly && currentSong?.lyricsType !== "none";
 
-      if (
-        !currentSong ||
-        currentSong.scenes.length === 0 ||
-        waitingForPlayback
-      ) {
-        if (currentSong) holdTitle(true);
+      if (!currentSong || scenes.length === 0 || waitingForPlayback) {
+        if (currentSong && !beatOnly) holdTitle(true);
+        if (beatOnly) holdTitle(false);
         if (chosenIdRef.current !== undefined) {
           chosenIdRef.current = undefined;
           setSlides([]);
@@ -142,12 +185,12 @@ export function Visualizer({
       } else {
         const positionMs = sample ? estimatePositionMs(sample) : 0;
         // Rewind into the intro brings the title card back.
-        if (isTitleCardMoment(currentSong.scenes, positionMs)) holdTitle(true);
-        const next = frameAtPosition(
-          currentSong.scenes,
-          positionMs,
-          currentSong.bpm,
-        );
+        // A preview has no title card — the clock isn't the song's clock.
+        if (!beatOnly && isTitleCardMoment(currentSong.scenes, positionMs)) {
+          holdTitle(true);
+        }
+        if (beatOnly) holdTitle(false);
+        const next = frameAtPosition(scenes, positionMs, currentSong.bpm);
         const nextId = next?.photo.id ?? null;
 
         if (nextId !== chosenIdRef.current) {
@@ -177,7 +220,7 @@ export function Visualizer({
         }
 
         preloadAhead(
-          upcomingPhotoSrcs(currentSong.scenes, positionMs, currentSong.bpm, 3),
+          upcomingPhotoSrcs(scenes, positionMs, currentSong.bpm, 3),
           preloadedRef.current,
         );
       }
@@ -231,23 +274,19 @@ export function Visualizer({
     if (!inIntro && sample) holdTitle(false);
   }
 
-  function holdTitle(next: boolean) {
-    if (titleHeldRef.current === next) return;
-    titleHeldRef.current = next;
-    setTitleHeld(next);
-  }
-
   if (!song) return null;
 
   const noLyrics = song.lyricsType === "none";
+  const beatOnly = previewMode;
   const hasPhotos = song.scenes.some((scene) => scene.photos.length > 0);
   // No lyrics and no photos: nothing to draw. The player explains it.
-  if (noLyrics && !hasPhotos) return null;
+  if (!hasPhotos && (noLyrics || beatOnly)) return null;
 
-  const showTitle = titleHeld && !noLyrics && !holdPhotos;
+  const showTitle = titleHeld && !noLyrics && !beatOnly && !holdPhotos;
   // Keep the dark screen up for a no-lyrics song until the first photo
   // is chosen, so the page doesn't flash empty between the sentence and the pictures.
-  if (!noLyrics && !showTitle && slides.length === 0) return null;
+  // A preview keeps the screen up too, so photos can start on the beat.
+  if (!noLyrics && !beatOnly && !showTitle && slides.length === 0) return null;
 
   const fadeMs = crossfadeMs(song?.bpm ?? 120);
   // Pexels sends an average color. Show it while the file is still arriving
