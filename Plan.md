@@ -51,6 +51,8 @@ Desktop first; responsive where practical.
 | Tempo | **Deezer** (`bpm` field), default of 120 if missing | Already in the Deezer data we fetch. | No |
 | Keyword extraction | **compromise** (small JavaScript language library) + a stop-word list | Pulls out the meaningful words (mostly nouns) and drops "a, and, the". Runs for free inside our code. | No |
 | Photos | **Pexels API** | Free, instant key, returns photographer name and profile link for credits. | Yes (Pexels) |
+| Videos (Phase 9B) | **Pexels Video API** | Same key and rate limit as photos; returns videographer credits. | Same Pexels key |
+| Scene descriptions (Phase 9A) | **Claude API** | Turns lyric lines into photographable search phrases and a per-song visual style. Pay-as-you-go, pennies per song with caching. | Yes (Anthropic) |
 | Caching | **Next.js built-in fetch caching** | Saves API results so repeated songs don't use up rate limits. No database needed for v1. | — |
 
 ### Known limitations (decided, not bugs)
@@ -60,8 +62,9 @@ Desktop first; responsive where practical.
 - **Your Spotify developer app requires you to have Spotify Premium.** If your Premium lapses, the Deezer → Spotify matching stops working.
 - **"Immediately plays" may need one click.** Browsers restrict audio that starts without a click. Selecting a result counts as a click on *our* page, but the Spotify player is embedded from Spotify's site, so some browsers may still require the user to press play once. Test in Phase 1.
 - **Deezer's API is for non-commercial use.** No ads or paid tier while using it.
-- **Pexels is limited to 200 requests/hour.** Caching and a per-song cap on keywords (Section 5) keep us well under.
-- **Lyrics are used, not displayed.** They drive image selection only, which keeps us clear of lyric copyright issues.
+- **Pexels is limited to 200 requests/hour.** Photo and video searches share that limit. Caching and a per-song cap on keywords (Section 5) keep us well under.
+- **Lyrics are used, not displayed.** They drive image selection only, which keeps us clear of lyric copyright issues. In Phase 9A they are also sent to Claude to write search phrases, still never shown on screen. The Anthropic key stays on the server, same rule as the other keys.
+- **Video files are large.** Phase 9B prefers clips around 1280–1920 pixels wide and preloads only the next one, so a slow connection can still keep up.
 
 ---
 
@@ -135,7 +138,16 @@ type SongPackage = {
 4. **No lyrics / instrumental:** no keyword scenes. Use Pexels "curated" (random) photos spread across the song.
 5. Merge consecutive lines with the same keyword into one scene.
 6. **Cap at ~20 unique keywords per song** to stay within Pexels limits. If there are more, keep the most frequent.
-7. For each unique keyword, fetch 3 landscape photos from Pexels. Reuse photos if a keyword repeats (e.g. the chorus).
+7. For each unique keyword, search Pexels and keep 3 good landscape photos. Reuse photos if a keyword repeats (e.g. the chorus).
+
+### 5.2a Photo quality rules (added before Phase 7)
+
+The goal is photos that feel artistic and cinematic, not like stock photography.
+
+- **Request 20 results per keyword**, then keep the first 3 that pass the rules below, in the order Pexels returns them. No extra scoring.
+- **Add a style phrase to every search:** the search becomes `"{keyword} cinematic film photography"`. After Phase 9A, the song's own style phrase replaces "cinematic film photography".
+- **Skip photos of text and obvious stock shots.** If a photo's `alt` text contains any word or phrase from `lib/photo-blocklist.ts`, skip it. Ignore upper/lower case. A single word must match a whole word ("sign" does not match "design"). A phrase must appear as written ("neon sign"). Starting list: `text, word, letters, typography, sign, quote, written, scrabble, tiles, alphabet, neon sign, smiling, business, office, laptop, posing`. Edit the list freely as you spot new offenders.
+- **If fewer than 3 photos survive,** search again with the same query on page 2. If still short, use whatever survived (at least 1). If none survived, use curated photos.
 
 ### 5.3 The visual engine (runs in the browser)
 
@@ -162,7 +174,9 @@ type SongPackage = {
 - Credits screen:
   - Song title + musician (links to their page)
   - "Photographs by" — every photographer whose photo was displayed, each linking to their Pexels profile, with the photo linking to its Pexels page
-  - Footer: "Photos provided by Pexels · Lyrics from LRCLIB · Search by Deezer · Music on Spotify"
+  - "Footage by" — every videographer whose clip was displayed (Phase 9B only), each linking to their Pexels profile
+  - Footer, before video: "Photos provided by Pexels · Lyrics from LRCLIB · Search by Deezer · Music on Spotify"
+  - Footer, once video ships: "Photos and videos provided by Pexels · Lyrics from LRCLIB · Search by Deezer · Music on Spotify"
   - Buttons: "Play again" and "New search"
 - **Don't show credits when a 30-second preview ends** — show the login prompt instead (Section 5.6).
 
@@ -182,6 +196,20 @@ type SongPackage = {
 - **When the preview ends:** show a short version of the prompt ("That was the preview — log in to hear the whole song") with **Log in to Spotify**, **Play again**, and **New search**, instead of the credits screen.
 
 **Visuals in preview mode.** Spotify's preview is a 30-second clip, often from the middle of the song, and the reported position counts from the start of the clip, not the start of the song. So lyric timestamps can't be matched reliably. In preview mode, use the "no lyrics" behavior: curated or keyword photos changing on the beat, without lyric-timed scene changes. (Don't show the "We can't find lyrics" message — the login prompt covers it.)
+
+### 5.7 Video (Phase 9B — an experiment, not part of the first launch)
+
+Same timing rules as photos: the picture on screen is always calculated from the playback position. A clip does not start at a random moment, or rewind would show something different each time.
+
+- Search with the same phrase the photos use (the keyword, or the AI scene phrase after Phase 9A).
+- Prefer one landscape file per scene, about 1280–1920 pixels wide, `quality: "hd"`. If none is that size, use a smaller landscape file. If there is still no landscape clip, show the scene's photos instead.
+- Play muted. Where we are in the clip = how far we are into the scene, looping if the clip is shorter than the scene.
+- Cut from one clip to the next at the same moments photos would change (lyric line, or the beat grid inside a long scene).
+- Preload the next clip only.
+- Three modes, remembered for the visit:
+  - **Photos** — what the app does today.
+  - **Video** — clips, with photos filling any scene that has no clip.
+  - **Mix** — video only on scenes whose word (or AI phrase) appears more than once (the chorus). Everything else stays photos.
 
 ---
 
@@ -206,13 +234,18 @@ All external calls happen in server routes under `app/api/`, never directly from
 - Response includes `syncedLyrics` (format `[mm:ss.xx] line`), `plainLyrics`, `instrumental`.
 
 **Pexels** (key in `Authorization` header)
-- Search: `GET https://api.pexels.com/v1/search?query={keyword}&per_page=3&orientation=landscape`
+- Search: `GET https://api.pexels.com/v1/search?query={keyword} cinematic film photography&per_page=20&orientation=landscape` (then filter with the blocklist — Section 5.2a)
 - Random/curated: `GET https://api.pexels.com/v1/curated?per_page=20`
 - Photo fields used: `id`, `src.large2x`, `alt`, `avg_color`, `photographer`, `photographer_url`, `url`
+- Video search (Phase 9B): `GET https://api.pexels.com/videos/search?query={query}&per_page=15&orientation=landscape` (note: no `/v1/` in this path)
+  - Video fields used: `id`, `duration`, `image` (poster/thumbnail), `url`, `user.name`, `user.url`, and `video_files[]` → pick a landscape file (`width` ≥ `height`) around 1280–1920 wide with `quality: "hd"`, and use its `link`. If none fit, use the smallest landscape file.
+  - Videos share the same 200 requests/hour limit as photos, so cache them the same way (24 hours)
+- Required credit: a visible "Photos and videos provided by Pexels" link, and credit photographers/videographers where possible
 
 **Environment variables** (stored in `.env.local` on your computer and in Vercel's settings — never in GitHub)
 ```
 PEXELS_API_KEY=
+ANTHROPIC_API_KEY=         ← added in Phase 9A (AI scene descriptions)
 SPOTIFY_CLIENT_ID=
 SPOTIFY_CLIENT_SECRET=
 LRCLIB_USER_AGENT="LyricVisualizer/0.1 (https://your-site-or-github-link)"
@@ -242,6 +275,8 @@ LRCLIB_USER_AGENT="LyricVisualizer/0.1 (https://your-site-or-github-link)"
   lrclib.ts
   pexels.ts
   keywords.ts              ← keyword extraction + stop words
+  photo-blocklist.ts       ← words that disqualify a photo (Section 5.2a)
+  scene-writer.ts          ← AI scene descriptions (Phase 9A)
   scenes.ts                ← lyrics → scenes
   tempo.ts                 ← bpm clean-up + intervals
   types.ts                 ← the types in Section 5.1
@@ -319,6 +354,17 @@ If anything here fails, stop and bring the result back to Claude — the plan ma
 
 ✅ **Check:** photos change on the lyrics and roughly on the beat. Pause freezes the image. Rewinding and skipping jump to the right photos. No blank flashes between photos.
 
+### Phase 6B — Photo quality pass (do before Phase 7)
+
+**Goal:** fewer stock-looking photos and no photos of words (e.g. "wonder" spelled in Scrabble tiles).
+
+> **Prompt:** "Phase 6B of @PLAN.md, following Section 5.2a. Update pexels.ts: (1) request 20 results per keyword, (2) skip any photo whose alt text contains a word from a new file lib/photo-blocklist.ts (start it with: text, word, letters, typography, sign, quote, written, scrabble, tiles, alphabet, neon sign, smiling, business, office, laptop, posing), (3) add \"cinematic film photography\" to every search. On the /debug page, show a before-and-after comparison for the keyword \"wonder\": the old results next to the new ones."
+
+✅ **Check:**
+- On /debug, the "after" results for "wonder" contain no photos of written words.
+- A few other songs still get 3 photos per scene (or a sensible fallback), and the visualizer still works.
+- The blocklist lives in its own file so you can edit it without touching other code.
+
 ### Phase 7 — Fallbacks
 
 > **Prompt:** "Phase 7 of @PLAN.md. Handle: (1) no lyrics → show 'We can't find lyrics, but let's see what happens' for ~3 seconds, then curated photos at tempo; (2) plain-only lyrics → keywords spread evenly; (3) missing bpm → 120; (4) any API failure → a friendly message instead of a broken screen."
@@ -342,9 +388,33 @@ If anything here fails, stop and bring the result back to Claude — the plan ma
 
 ✅ **Check:** let a song finish. Every photographer appears once, and all links open the correct pages in a new tab.
 
+### Phase 9A — AI scene descriptions (recommended, before designing)
+
+**Goal:** search for a *scene* instead of a single word ("I wonder where you are tonight" → "empty road at night, streetlights"), and give each song one consistent visual style.
+
+> **Prompt:** "Phase 9A of @PLAN.md. Add lib/scene-writer.ts. After the lyrics are split into scenes, send the song title, artist, tempo and the lyric lines (server-side only, using ANTHROPIC_API_KEY) to Claude in one request, and ask for: a short visual search phrase for each scene (a concrete, photographable scene — never the literal word), and one style phrase for the whole song (for example 'moody, blue tones'). Search Pexels for '{scene phrase} {style phrase}' instead of '{keyword} cinematic film photography', still applying the blocklist from Section 5.2a. If the AI request fails, fall back to the current keyword search. Cache results per song for 24 hours. Never put the Anthropic key in frontend code. Show lyric line → scene phrase on the /debug page."
+
+✅ **Check:** on /debug, scene phrases describe real, visual things; the photos feel more connected to the song and more consistent with each other. If the AI key is removed, the app still works using keywords.
+
+Lyrics are sent to the AI only to write search phrases and are never displayed.
+
+### Phase 9B — Video (experiment)
+
+**Goal:** try moving footage instead of (or mixed with) photos, and compare.
+
+> **Prompt:** "Phase 9B of @PLAN.md. Follow Section 5.7 and the video notes in Section 6. Add Pexels video search to pexels.ts. For each scene, fetch one landscape clip; if none qualifies, keep that scene's photos. Play clips muted, with the frame calculated from the playback position (not a random start). Cut when the photo engine would have changed pictures, and preload only the next clip. Pause and seek must land on the matching frame. Add a Photos / Video / Mix toggle as defined in Section 5.7, and list videographers in the credits under 'Footage by'."
+
+✅ **Check:**
+- Try the same song in all three modes. Videos play silently, cut on the beat, and pause/skip with the song.
+- No black flashes between clips (preloading works). Scenes with no matching video show photos instead.
+- The credits list both photographers and videographers, each linking to Pexels.
+- Try it on a slower connection (or your phone) to see if loading keeps up.
+
 ### Phase 10 — Apply your designs
 
-Design the screens in Claude Design: search (empty and with results), playing, no-lyrics message, Spotify login prompt (including the "Reload player" and end-of-preview states), credits, loading and error states. Then apply one screen per prompt:
+Design the screens in Claude Design: search (empty and with results), playing, no-lyrics message, Spotify login prompt (including the "Reload player" and end-of-preview states), the Photos / Video / Mix toggle, credits, loading and error states. Then apply one screen per prompt.
+
+Also design the **visual treatment** for the photos and video — a consistent color grade, duotone or tint, film grain, and slow drift/zoom. A shared treatment makes material from many photographers feel like one artistic vision. Ask Cursor to apply it with CSS, one effect at a time.
 
 > **Prompt:** "Phase 10 of @PLAN.md. Restyle the [screen name] to match this design [attach image/link]. Only change styling and layout, not behavior. Use Tailwind. Make it work down to tablet width."
 
@@ -361,7 +431,6 @@ Design the screens in Claude Design: search (empty and with results), playing, n
 
 ### Later ideas (not v1)
 
-- Use an AI model to turn each lyric line into a better image search ("cold as ice" → frozen landscape rather than ice cubes) and to set a color mood per song.
 - Shareable links to a specific song's visuals.
 - A second music source, such as SoundCloud, for independent artists.
 
