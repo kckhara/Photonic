@@ -1,7 +1,7 @@
 import { getDeezerTrack } from "@/lib/deezer";
 import { getLyrics } from "@/lib/lrclib";
-import { attachPhotos, getCuratedPhotos } from "@/lib/pexels";
-import { curatedScenes, scenesFromLyrics } from "@/lib/scenes";
+import { attachPhotos } from "@/lib/pexels";
+import { scenesFromLyrics } from "@/lib/scenes";
 import { findSpotifyTrackIdByIsrc } from "@/lib/spotify";
 import { cleanBpm } from "@/lib/tempo";
 import type { Scene, SongPackage } from "@/lib/types";
@@ -49,6 +49,7 @@ export async function GET(
     ]);
 
     const durationMs = track.durationSeconds * 1000;
+    const bpm = cleanBpm(track.bpm);
     const scenes = await scenesWithPhotos(
       scenesFromLyrics({
         lyricsType: lyrics.lyricsType,
@@ -57,6 +58,7 @@ export async function GET(
         durationMs,
       }),
       durationMs,
+      bpm,
     );
 
     const song: SongPackage = {
@@ -65,8 +67,9 @@ export async function GET(
       title: track.title,
       artist: track.artistName,
       artistUrl: track.artistUrl,
+      albumCoverUrl: track.albumCoverUrl,
       durationMs,
-      bpm: cleanBpm(track.bpm),
+      bpm,
       lyricsType: lyrics.lyricsType,
       scenes,
     };
@@ -82,15 +85,29 @@ export async function GET(
 }
 
 /**
- * Keyword scenes get 3 photos per word.
+ * Each scene gets a new photo every time the picture will change.
+ * A photo is not repeated in the same song.
  * No scenes means the lyrics had nothing to picture, so use curated photos.
  */
 async function scenesWithPhotos(
   drafts: Scene[],
   durationMs: number,
+  bpm: number,
 ): Promise<Scene[]> {
-  if (drafts.length > 0) return attachPhotos(drafts);
+  if (drafts.length > 0) return attachPhotos(drafts, bpm);
 
-  const photos = await getCuratedPhotos();
-  return curatedScenes(durationMs, photos);
+  const [scene] = await attachPhotos(
+    [
+      {
+        startMs: 0,
+        endMs: Math.max(0, durationMs),
+        keyword: "",
+        photos: [],
+      },
+    ],
+    bpm,
+  );
+
+  if (!scene || scene.photos.length === 0) return [];
+  return [scene];
 }

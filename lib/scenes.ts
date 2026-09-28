@@ -6,6 +6,9 @@
  * The same word on neighboring lines becomes one scene (a chorus).
  * At most 20 different words are kept — the ones that show up most often —
  * so we don't ask Pexels for too many photos.
+ *
+ * If the first lyric starts after 0:00, an opening title card fills that gap.
+ * It has no picture-word. The visualizer draws the album cover there.
  */
 
 import { keywordFromLine } from "@/lib/keywords";
@@ -39,11 +42,11 @@ export function scenesFromLyrics(source: LyricSource): Scene[] {
       keywordsFromSyncedLyrics(source.syncedLyrics),
       durationMs,
     );
-    if (synced.length > 0) return synced;
+    if (synced.length > 0) return withTitleCard(synced);
   }
 
   if (source.plainLyrics && source.lyricsType !== "none") {
-    return scenesFromPlainLyrics(source.plainLyrics, durationMs);
+    return withTitleCard(scenesFromPlainLyrics(source.plainLyrics, durationMs));
   }
 
   return [];
@@ -213,4 +216,32 @@ function scenesFromTimedLines(
   }
 
   return scenes.filter((scene) => scene.endMs > scene.startMs);
+}
+
+/**
+ * When the first lyric is not at the very start, hold a title card
+ * from 0:00 until that lyric. Songs that already start at 0 stay as they are.
+ */
+function withTitleCard(scenes: Scene[]): Scene[] {
+  if (scenes.length === 0) return scenes;
+  if (scenes[0].titleCard) return scenes;
+  if (scenes[0].startMs <= 0) return scenes;
+
+  return [
+    {
+      startMs: 0,
+      endMs: scenes[0].startMs,
+      keyword: "",
+      photos: [],
+      titleCard: true,
+    },
+    ...scenes,
+  ];
+}
+
+/** True while the song is still in the opening title card, before the first lyric. */
+export function isTitleCardMoment(scenes: Scene[], positionMs: number): boolean {
+  const card = scenes.find((scene) => scene.titleCard);
+  if (!card) return false;
+  return positionMs < card.endMs;
 }

@@ -27,8 +27,10 @@ export type Scene = {
   startMs: number;
   endMs: number;
   keyword: string;
-  // Usually 3 landscape photos. Reused when the same word comes back.
+  // One landscape photo for each time the picture changes. Not repeated later in the song.
   photos: Photo[];
+  // The opening card before the first lyric. It has no photos.
+  titleCard?: boolean;
 };
 
 /**
@@ -42,6 +44,8 @@ export type SongPackage = {
   artist: string;
   // Deezer page for the musician. The credits screen links here later.
   artistUrl: string;
+  // Large album cover from Deezer (cover_xl). Empty when Deezer didn't send one.
+  albumCoverUrl: string;
   // Length of the song in milliseconds (1 second = 1000).
   durationMs: number;
   // Tempo after the cleanup rules in lib/tempo.ts.

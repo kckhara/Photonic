@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { isTitleCardMoment } from "@/lib/scenes";
 import {
   crossfadeMs,
   estimatePositionMs,
@@ -20,6 +21,10 @@ import type { Photo, PlaybackSample, SongPackage } from "@/lib/types";
  * A lyric line picks the scene. Inside that scene, photos take turns on
  * the beat. Two copies of the photo sit on top of each other so the new
  * one can fade in while the old one is still there (no blank flash).
+ *
+ * Before the first lyric, and while the first photo is still downloading,
+ * a title card shows the album cover with the song title and artist.
+ * The first photo fades in on top of that card.
  */
 
 type Slide = {
@@ -49,7 +54,10 @@ export function Visualizer({
 
   const [slides, setSlides] = useState<Slide[]>([]);
   const [shownPhotos, setShownPhotos] = useState<Photo[]>([]);
+  // Stays up through the intro and until the first photo has finished fading in.
+  const [titleHeld, setTitleHeld] = useState(true);
   const slidesRef = useRef(slides);
+  const titleHeldRef = useRef(true);
 
   // The animation loop reads these between renders. Update them after
   // each render so the loop sees the latest song and playback position.
@@ -90,12 +98,15 @@ export function Visualizer({
       const sample = playbackRef.current;
 
       if (!currentSong || !sample || currentSong.scenes.length === 0) {
+        if (currentSong) holdTitle(true);
         if (chosenIdRef.current !== undefined) {
           chosenIdRef.current = undefined;
           setSlides([]);
         }
       } else {
         const positionMs = estimatePositionMs(sample);
+        // Rewind into the intro brings the title card back.
+        if (isTitleCardMoment(currentSong.scenes, positionMs)) holdTitle(true);
         const next = frameAtPosition(
           currentSong.scenes,
           positionMs,
@@ -172,9 +183,25 @@ export function Visualizer({
       if (current.length < 2) return current;
       return [top];
     });
+
+    // The photo now covers the title card. Drop the card unless we've
+    // rewound into the intro, where it should stay.
+    const currentSong = songRef.current;
+    const sample = playbackRef.current;
+    const inIntro =
+      currentSong &&
+      sample &&
+      isTitleCardMoment(currentSong.scenes, estimatePositionMs(sample));
+    if (!inIntro && sample) holdTitle(false);
   }
 
-  if (slides.length === 0) return null;
+  function holdTitle(next: boolean) {
+    if (titleHeldRef.current === next) return;
+    titleHeldRef.current = next;
+    setTitleHeld(next);
+  }
+
+  if (!song || (!titleHeld && slides.length === 0)) return null;
 
   const fadeMs = crossfadeMs(song?.bpm ?? 120);
   // Pexels sends an average color. Show it while the file is still arriving
@@ -188,17 +215,46 @@ export function Visualizer({
       style={{ backgroundColor: placeholder }}
       aria-hidden="true"
     >
+      {titleHeld && <TitleCard song={song} />}
       {slides.map((slide, index) => (
         <FadePhoto
           key={slide.token}
           slide={slide}
           fadeMs={fadeMs}
-          // The earlier photo sits behind the one that's fading in.
-          zIndex={index}
+          // Above the title card, so the first photo can fade in over it.
+          zIndex={index + 1}
           onReveal={revealSlide}
           onSettled={settleSlide}
         />
       ))}
+    </div>
+  );
+}
+
+/**
+ * Album cover, song title, and artist.
+ * Shown before the first lyric, and until the first photo has faded in.
+ * Simple on purpose — the real design comes in Phase 10.
+ */
+function TitleCard({ song }: { song: SongPackage }) {
+  return (
+    <div className="absolute inset-0" style={{ zIndex: 0 }}>
+      {song.albumCoverUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={song.albumCoverUrl}
+          alt=""
+          className="title-card-zoom absolute inset-0 h-full w-full object-cover"
+          style={{ filter: "blur(28px)" }}
+        />
+      ) : (
+        <div className="absolute inset-0 bg-black" />
+      )}
+      <div className="absolute inset-0 bg-black/45" />
+      <div className="absolute inset-0 flex flex-col items-center justify-center px-8 text-center text-white">
+        <p className="text-4xl font-semibold tracking-tight">{song.title}</p>
+        <p className="mt-3 text-xl">{song.artist}</p>
+      </div>
     </div>
   );
 }

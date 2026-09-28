@@ -119,6 +119,7 @@ type SongPackage = {
   title: string;
   artist: string;
   artistUrl: string;        // Deezer artist page for credits
+  albumCoverUrl: string;    // Deezer album.cover_xl, for the opening title card
   durationMs: number;
   bpm: number;              // cleaned-up tempo (see 5.4)
   lyricsType: "synced" | "plain" | "none";
@@ -137,25 +138,27 @@ type SongPackage = {
 4. **No lyrics / instrumental:** no keyword scenes. Use Pexels "curated" (random) photos spread across the song.
 5. Merge consecutive lines with the same keyword into one scene.
 6. **Cap at ~20 unique keywords per song** to stay within Pexels limits. If there are more, keep the most frequent.
-7. For each unique keyword, search Pexels and keep 3 good landscape photos. Reuse photos if a keyword repeats (e.g. the chorus).
+7. For each scene, search Pexels and keep enough good landscape photos for every time the picture will change in that scene. Do not reuse a photo later in the same song, and do not replay a photo inside a long scene (see Section 5.2a).
 
 ### 5.2a Photo quality rules (added before Phase 7)
 
 The goal is photos that feel artistic and cinematic, not like stock photography.
 
-- **Request 20 results per keyword**, then keep the first 3 that pass the rules below, in the order Pexels returns them. No extra scoring.
-- **Add a style phrase to every search:** the search becomes `"{keyword} cinematic film photography"`.
+- **Request 20 results per keyword.** Skip any that fail the blocklist, then pick at random from what's left — enough photos for every change in that scene, not always the first results. If one page isn't enough, ask for page 2.
+- **One short style word per scene**, rotating through `lib/style-words.ts`: `moody, dusk, night, silhouette, shadow, texture, fog, light, abstract, film`. The search is `"{keyword} {style word}"`. A longer style phrase (`cinematic film photography`) was tried and removed: Pexels treated it literally and returned photos of film rolls and cameras.
+- **Never reuse a photo in the same song.** Track photo ids already chosen and skip them for later scenes. The screen also does not loop back to an earlier photo inside a long scene. If it runs out of new photos, the last one stays up.
 - **Skip photos of text and obvious stock shots.** If a photo's `alt` text contains any word or phrase from `lib/photo-blocklist.ts`, skip it. Ignore upper/lower case. A single word must match a whole word ("sign" does not match "design"). A phrase must appear as written ("neon sign"). Starting list: `text, word, letters, typography, sign, quote, written, scrabble, tiles, alphabet, neon sign, smiling, business, office, laptop, posing`. Edit the list freely as you spot new offenders.
-- **If fewer than 3 photos survive,** search again with the same query on page 2. If still short, use whatever survived (at least 1). If none survived, use curated photos.
+- **If there aren't enough new photos,** search again with the keyword alone (no style word). If that is also short, use whatever survived (at least 1). If none survived, use curated photos that this song has not already used.
 
 ### 5.3 The visual engine (runs in the browser)
 
 - The Spotify player reports its position about once a second. Between updates, estimate the position smoothly using the time elapsed since the last update (only while playing).
 - On every animation frame:
   1. Find the scene whose `startMs ≤ position < endMs`.
-  2. Pick the photo within that scene: `photoIndex = floor((position − scene.startMs) / imageIntervalMs) % scene.photos.length`.
+  2. Pick the photo within that scene: `photoIndex = min(floor((position − scene.startMs) / imageIntervalMs), photos.length − 1)`. Do not wrap with `%`. A photo is not shown again.
   3. If it's different from what's on screen, crossfade to it.
 - **Scene changes happen exactly at lyric timestamps.** Within a scene, photos change on the beat grid.
+- **Opening title card.** If the first lyric scene starts after 0:00, show the album cover full-screen (blurred, slow zoom) with the song title and artist from 0:00 until that lyric, then crossfade into the first photo. Also keep the title card up while the first photos are still loading. Styling stays simple until Phase 10.
 - Preload the next 3 photos ahead of time so nothing pops in late.
 - Record every photo that's actually displayed (for the credits).
 
@@ -233,7 +236,7 @@ All external calls happen in server routes under `app/api/`, never directly from
 - Response includes `syncedLyrics` (format `[mm:ss.xx] line`), `plainLyrics`, `instrumental`.
 
 **Pexels** (key in `Authorization` header)
-- Search: `GET https://api.pexels.com/v1/search?query={keyword} cinematic film photography&per_page=20&orientation=landscape` (then filter with the blocklist — Section 5.2a)
+- Search: `GET https://api.pexels.com/v1/search?query={keyword} {styleWord}&per_page=20&orientation=landscape` (then filter with the blocklist and pick 3 at random — Section 5.2a). If fewer than 3 survive, repeat with `query={keyword}`.
 - Random/curated: `GET https://api.pexels.com/v1/curated?per_page=20`
 - Photo fields used: `id`, `src.large2x`, `alt`, `avg_color`, `photographer`, `photographer_url`, `url`
 - Video search (Phase 9B): `GET https://api.pexels.com/videos/search?query={query}&per_page=15&orientation=landscape` (note: no `/v1/` in this path)
@@ -355,7 +358,7 @@ If anything here fails, stop and bring the result back to Claude — the plan ma
 
 **Goal:** fewer stock-looking photos and no photos of words (e.g. "wonder" spelled in Scrabble tiles).
 
-> **Prompt:** "Phase 6B of @PLAN.md, following Section 5.2a. Update pexels.ts: (1) request 20 results per keyword, (2) skip any photo whose alt text contains a word from a new file lib/photo-blocklist.ts (start it with: text, word, letters, typography, sign, quote, written, scrabble, tiles, alphabet, neon sign, smiling, business, office, laptop, posing), (3) add \"cinematic film photography\" to every search. On the /debug page, show a before-and-after comparison for the keyword \"wonder\": the old results next to the new ones."
+> **Prompt:** "Phase 6B of @PLAN.md, following Section 5.2a. Update pexels.ts: (1) request 20 results per keyword, (2) skip any photo whose alt text contains a word from a new file lib/photo-blocklist.ts (start it with: text, word, letters, typography, sign, quote, written, scrabble, tiles, alphabet, neon sign, smiling, business, office, laptop, posing). Search the keyword alone — do not add a style phrase. On the /debug page, show a before-and-after comparison for the keyword \"wonder\": the old results next to the new ones."
 
 ✅ **Check:**
 - On /debug, the "after" results for "wonder" contain no photos of written words.
@@ -424,7 +427,7 @@ Also design the **visual treatment** for the photos and video — a consistent c
 
 Search for a *scene* instead of a single word ("I wonder where you are tonight" → "empty road at night, streetlights"), and give each song one consistent visual style. Lyrics would be sent to Claude only to write those phrases, never displayed. The Anthropic key would stay on the server (`ANTHROPIC_API_KEY` in `.env.local`, never in frontend code or git). Add `lib/scene-writer.ts` at that time.
 
-> **Prompt, when you're ready:** "Phase 9A of @PLAN.md. Add lib/scene-writer.ts. After the lyrics are split into scenes, send the song title, artist, tempo and the lyric lines (server-side only, using ANTHROPIC_API_KEY) to Claude in one request, and ask for: a short visual search phrase for each scene (a concrete, photographable scene — never the literal word), and one style phrase for the whole song (for example 'moody, blue tones'). Search Pexels for '{scene phrase} {style phrase}' instead of '{keyword} cinematic film photography', still applying the blocklist from Section 5.2a. Use the same phrases for video search. If the AI request fails, fall back to the current keyword search. Cache results per song for 24 hours. Never put the Anthropic key in frontend code. Show lyric line → scene phrase on the /debug page."
+> **Prompt, when you're ready:** "Phase 9A of @PLAN.md. Add lib/scene-writer.ts. After the lyrics are split into scenes, send the song title, artist, tempo and the lyric lines (server-side only, using ANTHROPIC_API_KEY) to Claude in one request, and ask for: a short visual search phrase for each scene (a concrete, photographable scene — never the literal word), and one style phrase for the whole song (for example 'moody, blue tones'). Search Pexels for '{scene phrase} {style phrase}' instead of the keyword alone, still applying the blocklist from Section 5.2a. Use the same phrases for video search. If the AI request fails, fall back to the current keyword search. Cache results per song for 24 hours. Never put the Anthropic key in frontend code. Show lyric line → scene phrase on the /debug page."
 
 - Shareable links to a specific song's visuals.
 - A second music source, such as SoundCloud, for independent artists.

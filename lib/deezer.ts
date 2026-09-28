@@ -123,6 +123,8 @@ export type DeezerTrackDetails = {
   artistName: string;
   artistUrl: string;
   albumTitle: string;
+  // Largest album cover Deezer has. Empty when the track has no artwork.
+  albumCoverUrl: string;
   durationSeconds: number;
   // null when Deezer didn't send a tempo. 0 is kept so cleanBpm can replace it.
   bpm: number | null;
@@ -142,7 +144,12 @@ type DeezerTrackDetailsResponse = {
   bpm?: number;
   isrc?: string;
   artist?: { name?: string; link?: string };
-  album?: { title?: string };
+  album?: {
+    title?: string;
+    cover_xl?: string;
+    cover_big?: string;
+    cover_medium?: string;
+  };
   error?: { message?: string; code?: number };
 };
 
@@ -180,6 +187,11 @@ export async function getDeezerTrack(
     artistName: body.artist?.name || "Unknown artist",
     artistUrl: body.artist?.link || "",
     albumTitle: body.album?.title || "",
+    albumCoverUrl:
+      body.album?.cover_xl ||
+      body.album?.cover_big ||
+      body.album?.cover_medium ||
+      "",
     durationSeconds: typeof body.duration === "number" ? body.duration : 0,
     bpm: typeof body.bpm === "number" ? body.bpm : null,
     isrc: body.isrc || null,

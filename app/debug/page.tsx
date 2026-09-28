@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import type { Photo, Scene, SongPackage } from "@/lib/types";
 
 /**
@@ -10,7 +10,7 @@ import type { Photo, Scene, SongPackage } from "@/lib/types";
  */
 export default function DebugPage() {
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-col gap-12 px-6 py-10">
+    <main className="mx-auto flex w-full max-w-5xl flex-col gap-12 px-6 py-10">
       <header>
         <p className="text-sm opacity-60">Debug</p>
         <h1 className="mt-1 text-2xl font-semibold">Song package</h1>
@@ -21,6 +21,8 @@ export default function DebugPage() {
         </p>
       </header>
 
+      <WonderCompare />
+
       <SongLookup />
 
       <LookupForm
@@ -30,6 +32,145 @@ export default function DebugPage() {
         pathPrefix="/api/artist-top/"
       />
     </main>
+  );
+}
+
+type WonderResult = {
+  keyword: string;
+  styleWord: string;
+  query: string;
+  source: "style" | "keyword" | "curated";
+  photos: Photo[];
+  blocklist: string[];
+  styleWords: string[];
+};
+
+function WonderCompare() {
+  const [result, setResult] = useState<WonderResult | null>(null);
+  const [errorText, setErrorText] = useState("");
+  const [status, setStatus] = useState<"loading" | "done" | "error">(
+    "loading",
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const response = await fetch("/api/debug/wonder");
+        const data: unknown = await response.json();
+
+        if (cancelled) return;
+
+        if (!response.ok || !isWonderResult(data)) {
+          setErrorText(errorMessage(data));
+          setStatus("error");
+          return;
+        }
+
+        setResult(data);
+        setStatus("done");
+      } catch {
+        if (cancelled) return;
+        setErrorText(
+          "Could not reach the server. Is npm run dev still running?",
+        );
+        setStatus("error");
+      }
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <section className="space-y-4">
+      <h2 className="text-lg font-medium">Photo search: “wonder”</h2>
+      <p className="text-sm opacity-70">
+        This is a sample of the first scene's search. The search adds one
+        style word, skips descriptions on the blocklist, and picks photos at
+        random. A long lyric line gets a new photo each time the picture
+        changes, instead of playing the same few again. Refresh this page for
+        a new pick.
+        The lists live in{" "}
+        <span className="font-mono">lib/style-words.ts</span> and{" "}
+        <span className="font-mono">lib/photo-blocklist.ts</span>.
+      </p>
+
+      {status === "loading" && (
+        <p className="text-sm">Asking Pexels for “wonder”…</p>
+      )}
+      {status === "error" && <p className="text-sm">{errorText}</p>}
+
+      {result && (
+        <>
+          <PhotoColumn
+            title={sourceLabel(result)}
+            query={result.query}
+            photos={result.photos}
+          />
+          <p className="text-sm opacity-70">
+            Style words, in order: {result.styleWords.join(", ")}.
+          </p>
+          <p className="text-sm opacity-70">
+            Skipped when the description contains: {result.blocklist.join(", ")}.
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+
+function sourceLabel(result: WonderResult): string {
+  if (result.source === "keyword") {
+    return `“${result.keyword} ${result.styleWord}” had fewer than 3 usable photos, so these are from the word alone`;
+  }
+  if (result.source === "curated") {
+    return "No matching photos, so these are general Pexels photos";
+  }
+  return `Search with the style word “${result.styleWord}”`;
+}
+
+function PhotoColumn({
+  title,
+  query,
+  photos,
+}: {
+  title: string;
+  query: string;
+  photos: Photo[];
+}) {
+  return (
+    <div className="space-y-3">
+      <div>
+        <h3 className="font-medium">{title}</h3>
+        <p className="text-sm opacity-70">
+          Search: “{query}” · {photos.length}{" "}
+          {photos.length === 1 ? "photo" : "photos"}
+        </p>
+      </div>
+
+      {photos.length === 0 ? (
+        <p className="text-sm">No photos came back.</p>
+      ) : (
+        <ul className="grid gap-4 sm:grid-cols-3">
+          {photos.map((photo) => (
+            <li key={photo.id}>
+              <figure className="space-y-1">
+                <PhotoThumb
+                  photo={photo}
+                  className="aspect-[3/2] w-full rounded object-cover"
+                  width={800}
+                />
+                <figcaption className="text-xs opacity-70">{photo.alt}</figcaption>
+              </figure>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -144,7 +285,9 @@ function SceneList({ song }: { song: SongPackage }) {
 }
 
 function SceneRow({ scene }: { scene: Scene }) {
-  const label = scene.keyword || "Curated photos (no lyrics)";
+  const label = scene.titleCard
+    ? "Title card"
+    : scene.keyword || "Curated photos (no lyrics)";
 
   return (
     <li className="space-y-2 border-b border-foreground/15 pb-4">
@@ -155,7 +298,11 @@ function SceneRow({ scene }: { scene: Scene }) {
         <span className="font-medium">{label}</span>
       </div>
 
-      {scene.photos.length === 0 ? (
+      {scene.titleCard ? (
+        <p className="text-sm opacity-70">
+          Album cover, with the song title and artist, until the first lyric.
+        </p>
+      ) : scene.photos.length === 0 ? (
         <p className="text-sm opacity-70">No photos for this word.</p>
       ) : (
         <ul className="flex flex-wrap gap-2">
@@ -170,15 +317,23 @@ function SceneRow({ scene }: { scene: Scene }) {
   );
 }
 
-function PhotoThumb({ photo }: { photo: Photo }) {
+function PhotoThumb({
+  photo,
+  className = "h-20 w-32 rounded object-cover",
+  width = 320,
+}: {
+  photo: Photo;
+  className?: string;
+  width?: number;
+}) {
   const image = (
     // Temporary debug thumbnail. next/image would need a Pexels host
     // setting we don't need once this page is removed.
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={thumbnailUrl(photo.src)}
+      src={thumbnailUrl(photo.src, width)}
       alt={photo.alt}
-      className="h-20 w-32 rounded object-cover"
+      className={className}
       style={{ backgroundColor: photo.avgColor }}
     />
   );
@@ -284,18 +439,34 @@ function formatTime(ms: number): string {
 
 // Ask Pexels' image host for a small crop so the debug page doesn't download
 // the full-size photo for every thumbnail.
-function thumbnailUrl(src: string): string {
+function thumbnailUrl(src: string, width: number): string {
   try {
     const url = new URL(src);
     url.searchParams.set("auto", "compress");
     url.searchParams.set("cs", "tinysrgb");
-    url.searchParams.set("w", "320");
-    url.searchParams.set("h", "200");
+    url.searchParams.set("w", String(width));
+    url.searchParams.set("h", String(Math.round(width * 0.625)));
     url.searchParams.set("fit", "crop");
     return url.toString();
   } catch {
     return src;
   }
+}
+
+function isWonderResult(data: unknown): data is WonderResult {
+  if (!data || typeof data !== "object") return false;
+  const value = data as Partial<WonderResult>;
+  return (
+    typeof value.keyword === "string" &&
+    typeof value.styleWord === "string" &&
+    typeof value.query === "string" &&
+    (value.source === "style" ||
+      value.source === "keyword" ||
+      value.source === "curated") &&
+    Array.isArray(value.photos) &&
+    Array.isArray(value.blocklist) &&
+    Array.isArray(value.styleWords)
+  );
 }
 
 function isSongPackage(data: unknown): data is SongPackage {

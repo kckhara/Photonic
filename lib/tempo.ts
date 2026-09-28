@@ -53,6 +53,21 @@ export function estimatePositionMs(
   return Math.max(0, position + elapsed);
 }
 
+/**
+ * How many times the photo will change during this stretch of the song.
+ * One photo per interval, including the photo at the start of the stretch.
+ */
+export function photoSlotCount(
+  startMs: number,
+  endMs: number,
+  bpm: number,
+): number {
+  const interval = imageIntervalMs(bpm);
+  const span = Math.max(0, endMs - startMs);
+  if (!(interval > 0)) return 1;
+  return Math.floor(Math.max(0, span - 1) / interval) + 1;
+}
+
 /** The photo that should be on screen at this moment, if there is one. */
 export function frameAtPosition(
   scenes: Scene[],
@@ -78,10 +93,10 @@ export function frameAtPosition(
   if (scene.photos.length === 0) return null;
 
   const interval = imageIntervalMs(bpm);
-  // Which photo inside this scene. The % wraps back to the first photo
-  // after we've used the last one (a chorus can be longer than 3 pictures).
+  // Which photo inside this scene. Walk forward only. Never go back to
+  // an earlier photo in the same scene. If we run out, hold the last one.
   const steps = Math.floor((position - scene.startMs) / interval);
-  const index = positiveMod(steps, scene.photos.length);
+  const index = Math.min(Math.max(0, steps), scene.photos.length - 1);
   const photo = scene.photos[index];
   if (!photo) return null;
 
@@ -123,18 +138,12 @@ export function upcomingPhotoSrcs(
       Math.max(0, scene.endMs - 1 - scene.startMs) / interval,
     );
 
-    // Stop this line once a full round of its photos adds nothing new.
-    let repeats = 0;
     for (let step = fromStep; step <= throughStep && srcs.length < count; step += 1) {
+      const index = Math.min(step, scene.photos.length - 1);
       const before = srcs.length;
-      addUpcoming(
-        srcs,
-        seen,
-        scene.photos[positiveMod(step, scene.photos.length)],
-        count,
-      );
-      repeats = srcs.length === before ? repeats + 1 : 0;
-      if (repeats >= scene.photos.length) break;
+      addUpcoming(srcs, seen, scene.photos[index], count);
+      // The last photo is already queued. Later beats hold it, so stop.
+      if (srcs.length === before) break;
     }
   }
 
@@ -162,11 +171,6 @@ function addUpcoming(
   if (!photo || srcs.length >= count || seen.has(photo.src)) return;
   seen.add(photo.src);
   srcs.push(photo.src);
-}
-
-function positiveMod(value: number, length: number): number {
-  if (length <= 0) return 0;
-  return ((value % length) + length) % length;
 }
 
 /**

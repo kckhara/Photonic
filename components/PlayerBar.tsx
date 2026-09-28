@@ -460,6 +460,7 @@ async function fetchSongPackage(
     title: body.title,
     artist: body.artist,
     artistUrl: body.artistUrl ?? "",
+    albumCoverUrl: body.albumCoverUrl ?? "",
     durationMs: body.durationMs ?? 0,
     bpm: body.bpm ?? 120,
     lyricsType: body.lyricsType ?? "none",

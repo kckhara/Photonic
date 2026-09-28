@@ -24,3 +24,24 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Slow zoom on the opening album cover. Phase 10 can restyle this. */
+@keyframes title-card-zoom {
+  from {
+    transform: scale(1.12);
+  }
+  to {
+    transform: scale(1.22);
+  }
+}
+
+.title-card-zoom {
+  animation: title-card-zoom 36s ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .title-card-zoom {
+    animation: none;
+    transform: scale(1.12);
+  }
+}
