@@ -202,6 +202,8 @@ const STOP_WORDS = new Set([
   "anyone",
   "nobody",
   "one",
+  // A degree word ("half-erased", "half past"). Searched on its own, stock photos are cut citrus.
+  "half",
   "good",
   "bad",
   "big",
