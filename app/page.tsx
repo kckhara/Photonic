@@ -424,7 +424,7 @@ export default function Home() {
         playback={playback}
         holdPhotos={holdPhotos}
         previewMode={previewMode}
-        visualMode={visualMode}
+        visualMode={song?.lyricsType === "none" ? "photos" : visualMode}
         onShownPhotos={onShownPhotos}
         onShownVideos={onShownVideos}
       />
@@ -458,7 +458,11 @@ export default function Home() {
           </div>
         )}
         {pick && (
-          <VisualModeToggle mode={visualMode} onChange={onVisualMode} />
+          <VisualModeToggle
+            mode={visualMode}
+            onChange={onVisualMode}
+            photosOnly={song?.lyricsType === "none"}
+          />
         )}
         {pick && (
           <PlayerBar
@@ -527,32 +531,44 @@ function rememberVisualMode(mode: VisualMode) {
 function VisualModeToggle({
   mode,
   onChange,
+  photosOnly = false,
 }: {
   mode: VisualMode;
   onChange: (mode: VisualMode) => void;
+  // No lyrics means there is nothing to cut a clip to, so only Photos works.
+  // The saved Video or Mix choice is left alone for the next song.
+  photosOnly?: boolean;
 }) {
   const options: { id: VisualMode; label: string }[] = [
     { id: "photos", label: "Photos" },
     { id: "video", label: "Video" },
     { id: "mix", label: "Mix" },
   ];
+  const shown = photosOnly ? "photos" : mode;
 
   return (
     <div className="mt-6">
       <div className="flex gap-2" role="group" aria-label="Photos, video, or mix">
         {options.map((option) => {
-          const selected = option.id === mode;
+          const selected = option.id === shown;
+          const unavailable = photosOnly && option.id !== "photos";
           return (
             <button
               key={option.id}
               type="button"
               aria-pressed={selected}
-              onClick={() => onChange(option.id)}
+              aria-disabled={unavailable}
+              disabled={unavailable}
+              onClick={() => {
+                // Photos is already on. Don't overwrite a saved Video or Mix choice.
+                if (photosOnly) return;
+                onChange(option.id);
+              }}
               className={`rounded px-3 py-2 text-sm ${
                 selected
                   ? "bg-white font-medium text-black"
                   : "border border-current"
-              }`}
+              } disabled:cursor-not-allowed disabled:opacity-40`}
             >
               {option.label}
             </button>
@@ -560,11 +576,13 @@ function VisualModeToggle({
         })}
       </div>
       <p className="mt-2 text-sm opacity-80">
-        {mode === "mix"
-          ? "Video on words that repeat, like a chorus. Photos on the rest."
-          : mode === "video"
-            ? "Clips where we have them. Photos fill in the rest."
-            : "Still photos, timed to the song."}
+        {photosOnly
+          ? "No lyrics for this song, so only photos play."
+          : shown === "mix"
+            ? "Video on words that repeat, like a chorus. Photos on the rest."
+            : shown === "video"
+              ? "Clips where we have them. Photos fill in the rest."
+              : "Still photos, timed to the song."}
       </p>
     </div>
   );
