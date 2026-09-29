@@ -31,26 +31,38 @@ export type Lyrics = {
   plainLyrics: string | null;
 };
 
+// Another release can share the title and still sing the lines at
+// different times. Only borrow its timestamps when the length is this close.
+const SYNCED_DURATION_WINDOW_SECONDS = 8;
+
 /**
  * Fetch lyrics and say whether they are synced, plain, or missing.
- * Tries an exact LRCLIB match first. If that misses, searches and
- * keeps the result whose length is closest to the Deezer duration.
+ * Tries an exact LRCLIB match first. If that record has no timestamps,
+ * searches for another release of the same song whose length is close
+ * and whose lyrics are synced. Otherwise keeps the plain text, or the
+ * closest search hit when the exact lookup missed.
  */
 export async function getLyrics(song: LyricsLookup): Promise<Lyrics> {
   const exact = await fetchExact(song);
-  const record = exact ?? (await fetchClosest(song));
-  const lyricsType = classify(record);
 
-  // Instrumentals and misses shouldn't leak leftover text into keywords.
-  if (lyricsType === "none") {
-    return { lyricsType, syncedLyrics: null, plainLyrics: null };
+  if (exact?.instrumental) {
+    return { lyricsType: "none", syncedLyrics: null, plainLyrics: null };
   }
 
-  return {
-    lyricsType,
-    syncedLyrics: record?.syncedLyrics?.trim() || null,
-    plainLyrics: record?.plainLyrics?.trim() || null,
-  };
+  if (hasSyncedLyrics(exact)) return asLyrics(exact);
+
+  // A search failure should keep the plain lyrics we already have.
+  let results: LrcRecord[] = [];
+  try {
+    results = await searchLyrics(song);
+  } catch (error) {
+    if (!exact) throw error;
+    console.error("LRCLIB search failed", error);
+  }
+
+  const synced = pickClosestSynced(results, song.durationSeconds);
+  const record = synced ?? exact ?? pickClosestDuration(results, song.durationSeconds);
+  return asLyrics(record);
 }
 
 function classify(record: LrcRecord | null): LyricsType {
@@ -82,7 +94,7 @@ async function fetchExact(song: LyricsLookup): Promise<LrcRecord | null> {
   return (await response.json()) as LrcRecord;
 }
 
-async function fetchClosest(song: LyricsLookup): Promise<LrcRecord | null> {
+async function searchLyrics(song: LyricsLookup): Promise<LrcRecord[]> {
   const url = lrclibUrl("search", {
     track_name: song.title,
     artist_name: song.artist,
@@ -95,7 +107,50 @@ async function fetchClosest(song: LyricsLookup): Promise<LrcRecord | null> {
   }
 
   const results = (await response.json()) as LrcRecord[];
-  return pickClosestDuration(results, song.durationSeconds);
+  return Array.isArray(results) ? results : [];
+}
+
+function hasSyncedLyrics(record: LrcRecord | null): boolean {
+  return Boolean(record && !record.instrumental && record.syncedLyrics?.trim());
+}
+
+function asLyrics(record: LrcRecord | null): Lyrics {
+  const lyricsType = classify(record);
+
+  // Instrumentals and misses shouldn't leak leftover text into keywords.
+  if (lyricsType === "none") {
+    return { lyricsType, syncedLyrics: null, plainLyrics: null };
+  }
+
+  return {
+    lyricsType,
+    syncedLyrics: record?.syncedLyrics?.trim() || null,
+    plainLyrics: record?.plainLyrics?.trim() || null,
+  };
+}
+
+/**
+ * The synced hit whose length is nearest the real song, as long as it
+ * is close enough to share the same timing. Earlier search hits win a tie.
+ */
+function pickClosestSynced(
+  results: LrcRecord[],
+  durationSeconds: number,
+): LrcRecord | null {
+  let closest: LrcRecord | null = null;
+  let closestGap = Infinity;
+
+  for (const result of results) {
+    if (!hasSyncedLyrics(result) || typeof result.duration !== "number") continue;
+
+    const gap = Math.abs(result.duration - durationSeconds);
+    if (gap > SYNCED_DURATION_WINDOW_SECONDS || gap >= closestGap) continue;
+
+    closest = result;
+    closestGap = gap;
+  }
+
+  return closest;
 }
 
 /**

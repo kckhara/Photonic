@@ -5,11 +5,16 @@
  * below throws away filler ("the", "yeah", "baby"). Nouns win. If a line
  * has several nouns, we keep the last one — in "a house on fire", that's
  * "fire". If there is no noun, we try an adjective, then a verb.
+ * Helper verbs ("can't", "might") are not pictures. A word on the photo
+ * blocklist is skipped too, because those photos are thrown away and the
+ * scene would fall through to a random picture. A proper name stays whole
+ * ("Spanish Harlem", not "Harlem"), so the search isn't a different place.
  *
  * If a junk word shows up on the debug page, add it to STOP_WORDS.
  */
 
 import nlp from "compromise";
+import { PHOTO_BLOCKLIST } from "@/lib/photo-blocklist";
 
 // Matching ignores capitals and apostrophes, so "Don't" and "dont" are the same.
 const STOP_WORDS = new Set([
@@ -285,8 +290,17 @@ const STOP_WORDS = new Set([
   "watch",
 ]);
 
+// Single words from the photo blocklist. Searching one of these can only
+// return photos we then throw away.
+const BLOCKED_WORDS = new Set(
+  PHOTO_BLOCKLIST.filter((entry) => !entry.includes(" ")).map((entry) =>
+    entry.toLowerCase(),
+  ),
+);
+
 /**
  * The one word we'd search for photos, or null when the line is only filler.
+ * A proper name can be two or three words ("new york city").
  */
 export function keywordFromLine(line: string): string | null {
   const text = line.trim();
@@ -298,15 +312,20 @@ export function keywordFromLine(line: string): string | null {
   // compromise's types drop nouns() after .not(), so this is cast back.
   const nouns = doc.match("#Noun").not("#Pronoun") as ReturnType<typeof nlp>;
   const noun = pickKeyword(asWordList(nouns.nouns().toSingular().out("array")));
-  if (noun) return noun;
+  if (noun) return phraseAround(text, noun);
 
   const adjective = pickKeyword(asWordList(doc.adjectives().out("array")));
   if (adjective) return adjective;
 
-  // Drop helper verbs ("is", "was", "can"), then use the dictionary form
+  // Drop helper verbs ("is", "was", "can't"), then use the dictionary form
   // ("found" → "find") so the stop list can catch the ones that aren't visual.
   const verbPhrases = asWordList(
-    doc.verbs().not("#Auxiliary").not("#Copula").out("array"),
+    doc
+      .verbs()
+      .not("#Auxiliary")
+      .not("#Copula")
+      .not("#Modal")
+      .out("array"),
   );
   const verbs = verbPhrases.flatMap((phrase) => infinitiveWords(phrase));
   return pickKeyword(verbs);
@@ -317,10 +336,108 @@ function pickKeyword(words: string[]): string | null {
   for (let index = words.length - 1; index >= 0; index -= 1) {
     const word = cleanWord(words[index]);
     if (word.length < 2) continue;
-    if (STOP_WORDS.has(word)) continue;
+    if (STOP_WORDS.has(word) || BLOCKED_WORDS.has(word)) continue;
     return word;
   }
   return null;
+}
+
+/**
+ * "Harlem" inside "Spanish Harlem" should be searched as the whole name.
+ * Otherwise Pexels also returns Haarlem in the Netherlands. A place name
+ * from compromise wins when it is longer; otherwise a run of capitalized
+ * words does ("Mad Hatters"). The first word of a line is capitalized
+ * just because it starts the sentence, so it only joins when the next
+ * word is capitalized too.
+ */
+function phraseAround(line: string, noun: string): string {
+  const place = placePhrase(line, noun);
+  const proper = properPhrase(line, noun);
+  const phrases = [noun, place, proper].filter(
+    (phrase): phrase is string => Boolean(phrase),
+  );
+  phrases.sort((a, b) => wordCount(b) - wordCount(a));
+  return phrases[0] ?? noun;
+}
+
+function placePhrase(line: string, noun: string): string | null {
+  const value = nlp(line).places().out("array");
+  const places = Array.isArray(value) ? value.map(String) : [];
+  let best: string | null = null;
+
+  for (const place of places) {
+    const words = place.split(/\s+/);
+    if (!words.some((word) => sameWord(word, noun))) continue;
+    const normalized = normalizePhrase(place);
+    if (!best || wordCount(normalized) > wordCount(best)) best = normalized;
+  }
+
+  return best;
+}
+
+function properPhrase(line: string, noun: string): string | null {
+  const tokens = line.match(/[A-Za-z]+(?:['’][A-Za-z]+)*/g) ?? [];
+  let index = -1;
+
+  for (let i = tokens.length - 1; i >= 0; i -= 1) {
+    if (sameWord(tokens[i], noun)) {
+      index = i;
+      break;
+    }
+  }
+
+  if (index < 0 || !isCapital(tokens[index])) return null;
+
+  let start = index;
+  while (start > 0 && isCapital(tokens[start - 1])) {
+    // The opening word of the line is capitalized either way.
+    if (start - 1 === 0 && !isCapital(tokens[start])) break;
+    start -= 1;
+  }
+
+  if (start === index) return null;
+  return normalizePhrase(tokens.slice(start, index + 1).join(" "));
+}
+
+function normalizePhrase(phrase: string): string {
+  const parts = phrase
+    .split(/\s+/)
+    .map((word) => cleanWord(word))
+    .filter((word) => word.length > 0);
+
+  // "This Broadway" and "The Night" can drop the first word. "New York"
+  // must keep "new": it is filler on its own, and part of the name.
+  while (
+    parts.length > 1 &&
+    parts[0] !== "new" &&
+    STOP_WORDS.has(parts[0])
+  ) {
+    parts.shift();
+  }
+  if (parts.length === 0) return "";
+
+  const last = parts[parts.length - 1];
+  parts[parts.length - 1] = singularWord(last);
+  return parts.join(" ");
+}
+
+function singularWord(word: string): string {
+  const value = nlp(word).nouns().toSingular().out("text");
+  const singular = typeof value === "string" ? cleanWord(value) : "";
+  return singular || word;
+}
+
+function sameWord(token: string, noun: string): boolean {
+  const cleaned = cleanWord(token);
+  return cleaned === noun || singularWord(cleaned) === noun;
+}
+
+function isCapital(word: string): boolean {
+  return /^[A-Z]/.test(word);
+}
+
+function wordCount(phrase: string): number {
+  return phrase.split(/\s+/).filter(Boolean).length;
 }
 
 function cleanWord(raw: string): string {

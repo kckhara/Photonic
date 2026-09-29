@@ -71,6 +71,7 @@ export async function getSpotifyAppToken(): Promise<string> {
 /**
  * Look up a Spotify track ID using an ISRC (the universal song ID from Deezer).
  * Returns null if Spotify has no matching track.
+ * Throws if Spotify's search is down, so a hiccup is not saved as "no match".
  *
  * The request itself includes a short-lived token, so we remember the
  * resulting track id for 24 hours instead of caching that request.
@@ -81,9 +82,35 @@ export const findSpotifyTrackIdByIsrc = unstable_cache(
   { revalidate: ONE_DAY_SECONDS },
 );
 
+// Spotify's search often answers 502 even for songs that are in the catalog.
+// A few tries usually gets a real answer. A thrown error is not cached.
+const SEARCH_ATTEMPTS = 4;
+
 async function lookupSpotifyTrackId(isrc: string): Promise<string | null> {
   const token = await getSpotifyAppToken();
+  let lastStatus = 0;
 
+  for (let attempt = 1; attempt <= SEARCH_ATTEMPTS; attempt++) {
+    if (attempt > 1) await wait(250 * (attempt - 1));
+
+    const result = await requestSpotifyTrackId(token, isrc);
+    if (result.status === "found") return result.id;
+    if (result.status === "missing") return null;
+    lastStatus = result.status;
+  }
+
+  throw new Error(`Spotify search failed (${lastStatus}).`);
+}
+
+type SearchResult =
+  | { status: "found"; id: string }
+  | { status: "missing" }
+  | { status: number };
+
+async function requestSpotifyTrackId(
+  token: string,
+  isrc: string,
+): Promise<SearchResult> {
   const url = new URL("https://api.spotify.com/v1/search");
   url.searchParams.set("q", `isrc:${isrc}`);
   url.searchParams.set("type", "track");
@@ -98,6 +125,11 @@ async function lookupSpotifyTrackId(isrc: string): Promise<string | null> {
     cache: "no-store",
   });
 
+  // 500–504 are Spotify's gateway failing, not "this song doesn't exist".
+  if (response.status >= 500 && response.status <= 504) {
+    return { status: response.status };
+  }
+
   if (!response.ok) {
     throw new Error(`Spotify search failed (${response.status}).`);
   }
@@ -106,5 +138,13 @@ async function lookupSpotifyTrackId(isrc: string): Promise<string | null> {
     tracks?: { items?: { id: string }[] };
   };
 
-  return data.tracks?.items?.[0]?.id ?? null;
+  const id = data.tracks?.items?.[0]?.id;
+  if (!id) return { status: "missing" };
+  return { status: "found", id };
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }

@@ -75,6 +75,27 @@ export function altIsBlocked(alt: string, query = ""): boolean {
   return false;
 }
 
+/**
+ * True when the description actually talks about this picture-word.
+ * "sky" matches "sky" and "skies", not "skylight". "harlem" does not
+ * match "haarlem". Used so a style word ("light", "texture") can't
+ * replace the lyric.
+ */
+export function altMentionsWord(alt: string, word: string): boolean {
+  const needle = word.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (needle.length < 2) return false;
+
+  return wordsIn(alt).some((token) => isSameOrPlural(token, needle));
+}
+
+function isSameOrPlural(token: string, word: string): boolean {
+  if (token === word || token === `${word}s` || token === `${word}es`) {
+    return true;
+  }
+  // "city" → "cities", "sky" → "skies".
+  return word.endsWith("y") && token === `${word.slice(0, -1)}ies`;
+}
+
 function wordsIn(text: string): string[] {
   return text
     .toLowerCase()

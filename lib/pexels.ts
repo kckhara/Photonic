@@ -12,9 +12,13 @@
  * - Add the next style word from lib/style-words.ts
  *   ("wonder" becomes "wonder moody", then the next scene gets "dusk", and so on).
  * - Ask for 20 landscape photos and skip any whose description is on the blocklist.
+ * - Keep a styled photo only when its description still mentions the picture-word.
+ *   Otherwise "sky light" becomes a skylight and "hobo texture" becomes fabric.
  * - Skip any photo already chosen earlier in this same song.
  * - Pick enough of the remaining photos, at random, to last the whole scene.
  * - If that search doesn't have enough, search the word alone and keep going.
+ * - If nothing describes the word, use the word-only photos anyway
+ *   ("tune" may be a musician who isn't labeled "tune").
  * - If that is also empty, use general (curated) photos that this song hasn't used.
  *
  * Videos (Phase 9B) use the same picture-word and the same API key.
@@ -24,7 +28,11 @@
  */
 
 import { unstable_cache } from "next/cache";
-import { PHOTO_BLOCKLIST, altIsBlocked } from "@/lib/photo-blocklist";
+import {
+  PHOTO_BLOCKLIST,
+  altIsBlocked,
+  altMentionsWord,
+} from "@/lib/photo-blocklist";
 import { styleWordAt } from "@/lib/style-words";
 import { photoSlotCount } from "@/lib/tempo";
 import type { Photo, Scene, VideoClip } from "@/lib/types";
@@ -128,34 +136,53 @@ export async function chooseScenePhotos(
   const styled = styleQuery(keyword, styleWord);
 
   if (keyword.trim()) {
-    const fromStyle = unused(await getFilteredSearch(styled, 1), usedIds);
+    const stylePage = unused(await getFilteredSearch(styled, 1), usedIds);
+    const onTopic = mentioning(stylePage, keyword);
+    let barePage: Photo[] = [];
+    let usedBareWord = false;
 
-    if (fromStyle.length >= count) {
-      return {
-        photos: pickRandom(fromStyle, count),
-        styleWord,
-        query: styled,
-        source: "style",
-      };
+    if (onTopic.length < count) {
+      barePage = unused(await getFilteredSearch(keyword, 1), usedIds);
+      const bareHits = mentioning(barePage, keyword);
+      if (bareHits.length > 0) usedBareWord = true;
+      addNew(onTopic, bareHits);
     }
 
-    // Not enough new photos. Add the word-only search, then a second
-    // page of each, until this scene can run without repeating.
-    const pool = [...fromStyle];
-    addNew(pool, unused(await getFilteredSearch(keyword, 1), usedIds));
-
-    if (pool.length < count) {
-      addNew(pool, unused(await getFilteredSearch(styled, 2), usedIds));
-      addNew(pool, unused(await getFilteredSearch(keyword, 2), usedIds));
+    if (onTopic.length < count) {
+      addNew(
+        onTopic,
+        mentioning(unused(await getFilteredSearch(styled, 2), usedIds), keyword),
+      );
+      const bareMore = mentioning(
+        unused(await getFilteredSearch(keyword, 2), usedIds),
+        keyword,
+      );
+      if (bareMore.length > 0) usedBareWord = true;
+      addNew(onTopic, bareMore);
     }
 
-    if (pool.length > 0) {
-      const usedBareWord = pool.length > fromStyle.length;
+    // A photo that names the lyric beats a pretty photo of the style word.
+    if (onTopic.length > 0) {
       return {
-        photos: pickRandom(pool, count),
+        photos: pickRandom(onTopic, count),
         styleWord,
         query: usedBareWord ? keyword : styled,
         source: usedBareWord ? "keyword" : "style",
+      };
+    }
+
+    // Nothing was labeled with the word. Use the plain search anyway.
+    let bare = [...barePage];
+    if (bare.length < count) {
+      addNew(bare, unused(await getFilteredSearch(keyword, 2), usedIds));
+    }
+
+    if (bare.length > 0) {
+      return {
+        photos: pickRandom(bare, count),
+        styleWord,
+        query: keyword,
+        source: "keyword",
       };
     }
   }
@@ -175,6 +202,17 @@ export async function chooseScenePhotos(
 
 function styleQuery(keyword: string, styleWord: string): string {
   return `${keyword.trim()} ${styleWord}`.trim();
+}
+
+/** The word a description has to mention. For "mad hatter", that's "hatter". */
+function keywordHead(keyword: string): string {
+  const parts = keyword.trim().toLowerCase().split(/\s+/);
+  return parts[parts.length - 1] ?? "";
+}
+
+function mentioning(photos: Photo[], keyword: string): Photo[] {
+  const head = keywordHead(keyword);
+  return photos.filter((photo) => altMentionsWord(photo.alt, head));
 }
 
 // The blocklist is part of the cache name. Editing lib/photo-blocklist.ts

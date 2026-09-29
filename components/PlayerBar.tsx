@@ -190,7 +190,9 @@ export function PlayerBar({
 
       {status === "ready" && song && !song.spotifyId && (
         <p className="text-sm" role="status">
-          This song isn’t on Spotify, so it can’t play here. Try another one.
+          {song.spotifyLookup === "failed"
+            ? "We couldn’t reach Spotify just now. Please try this song again."
+            : "This song isn’t on Spotify, so it can’t play here. Try another one."}
         </p>
       )}
 
@@ -571,6 +573,10 @@ async function fetchSongPackage(
   return {
     deezerId: body.deezerId,
     spotifyId: body.spotifyId ?? null,
+    spotifyLookup:
+      body.spotifyLookup === "failed" || body.spotifyLookup === "missing"
+        ? body.spotifyLookup
+        : undefined,
     title: body.title,
     artist: body.artist,
     artistUrl: body.artistUrl ?? "",

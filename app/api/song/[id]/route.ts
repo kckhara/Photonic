@@ -4,7 +4,7 @@ import { attachPhotos, attachVideos } from "@/lib/pexels";
 import { scenesFromLyrics } from "@/lib/scenes";
 import { findSpotifyTrackIdByIsrc } from "@/lib/spotify";
 import { cleanBpm } from "@/lib/tempo";
-import type { Scene, SongPackage } from "@/lib/types";
+import type { Scene, SongPackage, SpotifyLookup } from "@/lib/types";
 
 /**
  * GET /api/song/908604612
@@ -19,7 +19,8 @@ import type { Scene, SongPackage } from "@/lib/types";
  *   shows "We couldn't find any lyrics…" on black for the first 5 seconds.
  * - Plain lyrics (no timestamps): picture-words spread across the song.
  * - Missing tempo: 120 bpm.
- * - Spotify fails: the song still loads, and the player says it can't play.
+ * - Spotify has no match: the song still loads, and the player says it can't play.
+ * - Spotify's search fails: the song still loads, and the player asks to try again.
  * - Photos fail: the song still loads, and the page says the photos didn't.
  * The browser only ever receives a short friendly error, never a raw one.
  */
@@ -57,8 +58,8 @@ export async function GET(
 
     // Spotify and lyrics don't depend on each other, so ask both at once.
     // If either one fails, we still return the song.
-    const [spotifyId, lyrics] = await Promise.all([
-      lookupSpotifyId(track.isrc),
+    const [spotify, lyrics] = await Promise.all([
+      lookupSpotify(track.isrc),
       lookupLyrics(track),
     ]);
 
@@ -80,7 +81,8 @@ export async function GET(
 
     const song: SongPackage = {
       deezerId: track.id,
-      spotifyId,
+      spotifyId: spotify.spotifyId,
+      spotifyLookup: spotify.spotifyLookup,
       title: track.title,
       artist: track.artistName,
       artistUrl: track.artistUrl,
@@ -104,17 +106,23 @@ export async function GET(
 }
 
 /**
- * Spotify id for this song, or null if Spotify has no match or is down.
- * A failure here must not throw — the page already explains a missing player.
+ * Spotify id for this song.
+ * A failure here must not throw — the page explains a missing player,
+ * and a search outage is not the same as "this song isn't on Spotify".
  */
-async function lookupSpotifyId(isrc: string | null): Promise<string | null> {
-  if (!isrc) return null;
+async function lookupSpotify(isrc: string | null): Promise<{
+  spotifyId: string | null;
+  spotifyLookup?: SpotifyLookup;
+}> {
+  if (!isrc) return { spotifyId: null, spotifyLookup: "missing" };
 
   try {
-    return await findSpotifyTrackIdByIsrc(isrc);
+    const spotifyId = await findSpotifyTrackIdByIsrc(isrc);
+    if (!spotifyId) return { spotifyId: null, spotifyLookup: "missing" };
+    return { spotifyId };
   } catch (error) {
     console.error("Spotify lookup failed", error);
-    return null;
+    return { spotifyId: null, spotifyLookup: "failed" };
   }
 }
 

@@ -69,11 +69,17 @@ export type Scene = {
 
 /**
  * What /api/song/[id] returns.
- * spotifyId is null when Spotify has no matching track.
+ * spotifyId is null when we could not attach a Spotify track.
+ * spotifyLookup says whether that was a real miss or Spotify being down.
  */
+export type SpotifyLookup = "missing" | "failed";
+
 export type SongPackage = {
   deezerId: number;
   spotifyId: string | null;
+  // Set only when spotifyId is null. "missing" means Spotify has no match.
+  // "failed" means the search itself failed, so the song may still be there.
+  spotifyLookup?: SpotifyLookup;
   title: string;
   artist: string;
   // Deezer page for the musician. The credits screen links here.
