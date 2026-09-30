@@ -467,10 +467,6 @@ body {
     transform var(--motion-collapse) var(--ease-control);
 }
 
-.home-login-slot {
-  margin-top: var(--space-stack-gap);
-}
-
 .home-player-column > * {
   pointer-events: auto;
   width: min(
@@ -574,6 +570,30 @@ body {
   border: 0;
 }
 
+.spotify-login-hint {
+  margin: 0;
+  text-align: center;
+  font-size: var(--font-size-prompt-body);
+  font-weight: var(--font-weight-prompt-body);
+  line-height: var(--line-height-prompt-body);
+  letter-spacing: var(--letter-spacing-prompt-body);
+  color: var(--color-text-primary);
+}
+
+.spotify-login-hint a {
+  color: var(--color-link);
+  text-underline-offset: var(--space-underline-offset);
+}
+
+.spotify-login-hint a:hover {
+  color: var(--color-link-hover);
+}
+
+.spotify-login-hint a:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
 /* Loading, the opening countdown, and player errors share this type. */
 .screen-status {
   margin: 0;
@@ -584,31 +604,6 @@ body {
   letter-spacing: var(--letter-spacing-loading);
   color: var(--color-text-secondary);
   text-align: center;
-}
-
-.spotify-login-link {
-  align-self: flex-start;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--color-link);
-  font-family: inherit;
-  font-size: var(--font-size-credits-link);
-  font-weight: var(--font-weight-credits-link);
-  line-height: var(--line-height-credits-link);
-  letter-spacing: var(--letter-spacing-credits-link);
-  text-decoration: underline;
-  text-underline-offset: var(--space-underline-offset);
-  cursor: pointer;
-}
-
-.spotify-login-link:hover {
-  color: var(--color-link-hover);
-}
-
-.spotify-login-link:focus-visible {
-  outline: var(--focus-ring-width) solid var(--color-focus-ring);
-  outline-offset: var(--focus-ring-offset);
 }
 
 .no-lyrics-overlay {

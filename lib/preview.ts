@@ -16,9 +16,6 @@ const PREVIEW_MAX_MS = 35_000;
 // tiny mismatch doesn't look like a preview.
 const MUST_BE_LONGER_BY_MS = 5_000;
 
-// "Maybe later" is remembered until this browser tab is closed.
-const DISMISS_KEY = "lyric-visualizer:spotify-login-later";
-
 export type PlaybackKind = "unknown" | "preview" | "full";
 
 /**
@@ -75,23 +72,4 @@ export function playbackHasEnded(
     ended: isPaused && (nearEnd || jumpedToStart),
     nearEnd,
   };
-}
-
-/** True if they chose "Maybe later" earlier in this visit. */
-export function wasLoginPromptDismissed(): boolean {
-  try {
-    return sessionStorage.getItem(DISMISS_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-/** Hide the automatic prompt until this tab is closed. */
-export function rememberLoginPromptDismissed(): void {
-  try {
-    sessionStorage.setItem(DISMISS_KEY, "1");
-  } catch {
-    // Some private windows block storage. The prompt still closes
-    // for now; it may come back on the next song.
-  }
 }

@@ -67,7 +67,6 @@ export function PlayerBar({
   onSong,
   onPlayback,
   previewMode = false,
-  onShowLoginPrompt,
   playerCommand = null,
 }: {
   selection: SearchHit;
@@ -75,8 +74,6 @@ export function PlayerBar({
   onPlayback: (playback: PlaybackSample | null) => void;
   // True while Spotify is only playing a 30-second preview.
   previewMode?: boolean;
-  // The "Log in for full songs" link in the button row.
-  onShowLoginPrompt?: () => void;
   // Reload the embed, or send the preview back to the start.
   playerCommand?: PlayerCommand | null;
 }) {
@@ -175,15 +172,16 @@ export function PlayerBar({
       )}
 
       {status === "ready" && song?.spotifyId && (
-        <SpotifyPlayer
-          key={playerSlot.generation}
-          spotifyId={song.spotifyId}
-          startAtMs={playerSlot.startAtMs}
-          restartNonce={restartNonce}
-          showLoginLink={previewMode}
-          onShowLoginPrompt={onShowLoginPrompt}
-          onPlayback={(sample) => onPlaybackRef.current(sample)}
-        />
+        <>
+          <SpotifyPlayer
+            key={playerSlot.generation}
+            spotifyId={song.spotifyId}
+            startAtMs={playerSlot.startAtMs}
+            restartNonce={restartNonce}
+            onPlayback={(sample) => onPlaybackRef.current(sample)}
+          />
+          {previewMode && <PreviewLoginHint />}
+        </>
       )}
     </section>
   );
@@ -197,16 +195,12 @@ function SpotifyPlayer({
   spotifyId,
   startAtMs,
   restartNonce,
-  showLoginLink,
-  onShowLoginPrompt,
   onPlayback,
 }: {
   spotifyId: string;
   // 0 on a normal song start. After "Reload player", the moment to jump back to.
   startAtMs: number;
   restartNonce: number;
-  showLoginLink: boolean;
-  onShowLoginPrompt?: () => void;
   onPlayback: (playback: PlaybackSample | null) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -381,16 +375,21 @@ function SpotifyPlayer({
       <div className="spotify-embed">
         <div ref={hostRef} />
       </div>
-      {showLoginLink && (
-        <button
-          type="button"
-          className="spotify-login-link"
-          onClick={onShowLoginPrompt}
-        >
-          Log in for full songs
-        </button>
-      )}
     </div>
+  );
+}
+
+const SPOTIFY_LOGIN_URL = "https://accounts.spotify.com/login";
+
+/** Shown under the player while Spotify is only playing a preview. */
+function PreviewLoginHint() {
+  return (
+    <p className="spotify-login-hint">
+      Already have an account?{" "}
+      <a href={SPOTIFY_LOGIN_URL} target="_blank" rel="noopener noreferrer">
+        Login to spotify
+      </a>.
+    </p>
   );
 }
 

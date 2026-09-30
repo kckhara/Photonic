@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type RefObject } from "react";
+import { classifyPlayback } from "@/lib/preview";
 import { beatOnlyScenes, isTitleCardMoment } from "@/lib/scenes";
 import {
   clipTimeSeconds,
@@ -887,6 +888,8 @@ function ClipSurface({
 /**
  * Album cover and a countdown to the first photo or clip.
  * Shown through the opening, and until that first picture has faded in.
+ * The countdown waits until Spotify is playing the full song. A preview
+ * does not start at the beginning, so that clock would be wrong.
  */
 function TitleCard({
   song,
@@ -900,6 +903,8 @@ function TitleCard({
   const startsAtMs = firstVisualStartMs(song.scenes, visualMode);
   const playbackRef = useRef(playback);
   playbackRef.current = playback;
+  const showCountdown =
+    classifyPlayback(song.durationMs, playback?.reportedDurationMs) === "full";
 
   const [secondsLeft, setSecondsLeft] = useState(() =>
     secondsUntilShow(startsAtMs, playback),
@@ -940,11 +945,13 @@ function TitleCard({
         <div className="absolute inset-0 bg-[var(--color-bg-black)]" />
       )}
       <div className="absolute inset-0 bg-[var(--color-bg-black)]/45" />
-      <div className="absolute inset-0 flex flex-col items-center justify-center px-8 text-center">
-        <p className="screen-status tabular-nums">
-          Visuals start in {formatCountdown(secondsLeft)}
-        </p>
-      </div>
+      {showCountdown && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center px-8 text-center">
+          <p className="screen-status tabular-nums">
+            Visuals start in {formatCountdown(secondsLeft)}
+          </p>
+        </div>
+      )}
     </div>
   );
 }

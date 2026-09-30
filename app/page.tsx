@@ -6,17 +6,11 @@ import { Credits } from "@/components/Credits";
 import { NoLyricsMessage, NO_LYRICS_INTRO_MS } from "@/components/NoLyricsMessage";
 import { PlayerBar, type PlayerCommand } from "@/components/PlayerBar";
 import { SearchBox } from "@/components/SearchBox";
-import {
-  SpotifyLoginPrompt,
-  type LoginPromptStep,
-} from "@/components/SpotifyLoginPrompt";
 import { Visualizer } from "@/components/Visualizer";
 import type { SearchHit } from "@/lib/deezer";
 import {
   classifyPlayback,
   playbackHasEnded,
-  rememberLoginPromptDismissed,
-  wasLoginPromptDismissed,
   type PlaybackKind,
 } from "@/lib/preview";
 import { estimatePositionMs } from "@/lib/tempo";
@@ -37,11 +31,11 @@ import type {
  * and the player rises to the top. Any movement brings them back.
  * This file runs in the browser because it has to remember the chosen song.
  *
- * If Spotify is only playing a 30-second preview, a small login panel
- * appears near the player. Photos keep playing behind it. See section 5.6.
+ * If Spotify is only playing a 30-second preview, a line under the
+ * player offers a login link. Photos keep playing behind it.
  *
  * When a full song finishes, a credits screen covers the page. A preview
- * never uses that screen — its ending stays on the login panel.
+ * never uses that screen.
  */
 
 // How long the page stays still before the search and filters hide.
@@ -74,16 +68,7 @@ export default function Home() {
   const playbackRef = useRef<PlaybackSample | null>(null);
   const previewModeRef = useRef(false);
   const heardPlaybackRef = useRef(false);
-  const pendingReloadRef = useRef(false);
-  const promptStepRef = useRef<LoginPromptStep>("invite");
   const lastVerdictRef = useRef<PlaybackKind>("unknown");
-  // null until the first render in the browser, then true or false.
-  // The homepage doesn't show the prompt yet, so this stays out of the HTML.
-  const loginDismissedRef = useRef<boolean | null>(null);
-  if (loginDismissedRef.current == null) {
-    loginDismissedRef.current =
-      typeof window === "undefined" ? false : wasLoginPromptDismissed();
-  }
 
   const [pick, setPick] = useState<{
     hit: SearchHit;
@@ -96,8 +81,6 @@ export default function Home() {
   const [holdPhotos, setHoldPhotos] = useState(false);
   const [showNoLyricsSentence, setShowNoLyricsSentence] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
-  const [promptOpen, setPromptOpen] = useState(false);
-  const [promptStep, setPromptStep] = useState<LoginPromptStep>("invite");
   const [playerCommand, setPlayerCommand] = useState<PlayerCommand | null>(null);
   const [searchResetKey, setSearchResetKey] = useState(0);
   const [showCredits, setShowCredits] = useState(false);
@@ -199,28 +182,14 @@ export default function Home() {
     };
   }, [pick, searchOpen]);
 
-  function setStep(step: LoginPromptStep) {
-    promptStepRef.current = step;
-    setPromptStep(step);
-  }
-
   function enterPreview() {
     previewModeRef.current = true;
     setPreviewMode(true);
-    // The login panel can sit on the black screen. The sentence still
-    // follows the playhead, so the first 5 seconds stay quiet.
-    if (promptStepRef.current === "ended") {
-      setPromptOpen(true);
-      return;
-    }
-    if (!loginDismissedRef.current) setPromptOpen(true);
   }
 
   function enterFullSong() {
     previewModeRef.current = false;
     setPreviewMode(false);
-    setPromptOpen(false);
-    setStep("invite");
   }
 
   // Shared "did playback just finish?" check. Returns null when this
@@ -251,13 +220,6 @@ export default function Home() {
 
     if (result.ended) {
       nearEndRef.current = false;
-      // Leave the "Reload player" step up if they already opened login.
-      // A preview must never open the credits screen.
-      if (promptStepRef.current === "reload" || promptStepRef.current === "ended") {
-        return;
-      }
-      setStep("ended");
-      setPromptOpen(true);
       return;
     }
 
@@ -278,7 +240,7 @@ export default function Home() {
   }
 
   function openCredits() {
-    // Preview mode keeps the login panel. Credits are for a full song.
+    // A preview does not open the credits screen.
     if (creditsOpenRef.current || previewModeRef.current || !songRef.current) {
       return;
     }
@@ -305,15 +267,12 @@ export default function Home() {
   function resetPreviewState() {
     heardPlaybackRef.current = false;
     previewModeRef.current = false;
-    pendingReloadRef.current = false;
     lastVerdictRef.current = "unknown";
     reportedDurationRef.current = null;
     nearEndRef.current = false;
     ignoreEndRef.current = false;
     acceptPlaybackAfterRef.current = 0;
     setPreviewMode(false);
-    setPromptOpen(false);
-    setStep("invite");
     setPlayerCommand(null);
   }
 
@@ -372,67 +331,14 @@ export default function Home() {
     const currentSong = songRef.current;
     if (!currentSong || !heardPlaybackRef.current) return;
 
-    // "Reload player" — ignore the old embed, then judge the new one.
-    if (pendingReloadRef.current) {
-      if (sample.receivedAt < acceptPlaybackAfterRef.current) return;
-      // Wait until this new embed reports its own length. An older
-      // 30-second reading must not decide the question.
-      if (!sample.reportedDurationMs) return;
-      const verdict = classifyPlayback(
-        currentSong.durationMs,
-        sample.reportedDurationMs,
-      );
-      if (verdict === "unknown") return;
-      pendingReloadRef.current = false;
-      lastVerdictRef.current = "unknown";
-      // Still a preview: go back to the first message. A full song
-      // clears the panel in enterFullSong.
-      if (verdict === "preview" && promptStepRef.current === "reload") {
-        setStep("invite");
-      }
-      applyVerdict(verdict);
-      return;
-    }
-
     applyVerdict(
       classifyPlayback(currentSong.durationMs, reportedDurationRef.current),
     );
 
-    // A preview ends on the login panel. A full song ends on credits.
+    // A preview does not open credits. A full song does.
     // "Unknown" means Spotify hasn't reported a length yet, so we wait.
     if (lastVerdictRef.current === "preview") considerPreviewEnd(sample);
     else if (lastVerdictRef.current === "full") considerSongEnd(sample);
-  }
-
-  function onLogin() {
-    setStep("reload");
-    setPromptOpen(true);
-  }
-
-  function onMaybeLater() {
-    rememberLoginPromptDismissed();
-    loginDismissedRef.current = true;
-    setPromptOpen(false);
-  }
-
-  function onShowLoginPrompt() {
-    setPromptOpen(true);
-  }
-
-  function onReloadPlayer() {
-    const positionMs = Math.max(0, estimatePositionMs(playback));
-    acceptPlaybackAfterRef.current = performance.now();
-    ignoreEndRef.current = true;
-    nearEndRef.current = false;
-    pendingReloadRef.current = true;
-    setStep("reload");
-    setPromptOpen(true);
-    commandNonce.current += 1;
-    setPlayerCommand({
-      kind: "reload",
-      nonce: commandNonce.current,
-      positionMs,
-    });
   }
 
   // Seek back to the start and play. The next "ended" reading is ignored
@@ -444,12 +350,6 @@ export default function Home() {
     nearEndRef.current = false;
     commandNonce.current += 1;
     setPlayerCommand({ kind: "restart", nonce: commandNonce.current });
-  }
-
-  function onPlayAgain() {
-    restartPlayback();
-    setStep("invite");
-    setPromptOpen(!loginDismissedRef.current);
   }
 
   function onPlayCreditsAgain() {
@@ -547,21 +447,8 @@ export default function Home() {
               onSong={onSong}
               onPlayback={onPlayback}
               previewMode={previewMode}
-              onShowLoginPrompt={onShowLoginPrompt}
               playerCommand={playerCommand}
             />
-            {promptOpen && previewMode && (
-              <div className="home-login-slot">
-                <SpotifyLoginPrompt
-                  step={promptStep}
-                  onLogin={onLogin}
-                  onMaybeLater={onMaybeLater}
-                  onReload={onReloadPlayer}
-                  onPlayAgain={onPlayAgain}
-                  onNewSearch={onNewSearch}
-                />
-              </div>
-            )}
           </main>
         )}
       </div>
