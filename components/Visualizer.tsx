@@ -13,6 +13,7 @@ import {
   upcomingPhotoSrcs,
 } from "@/lib/tempo";
 import type {
+  ColorMode,
   Photo,
   PlaybackSample,
   Scene,
@@ -59,6 +60,10 @@ import type {
  * Going from a photo to a clip, or a clip back to a photo, dissolves
  * over one beat — the same length as a photo crossfade. One clip
  * replacing another still cuts, so those shots stay sharp.
+ *
+ * Black and white covers this whole layer: photos, clips, the standby
+ * frame, and the album art on the title card. Color turns that off.
+ * Search and the player sit above this layer, so they stay as they are.
  */
 
 type Slide = {
@@ -77,6 +82,7 @@ export function Visualizer({
   holdPhotos = false,
   previewMode = false,
   visualMode = "photos",
+  colorMode = "bw",
   onShownPhotos,
   onShownVideos,
 }: {
@@ -89,6 +95,8 @@ export function Visualizer({
   previewMode?: boolean;
   // Photos, clips, or clips only on repeated words. See the plan, 5.7.
   visualMode?: VisualMode;
+  // Black and white, or the photos and clips in their own color.
+  colorMode?: ColorMode;
   // Called with every photo that has actually appeared. The credits
   // screen lists those photographers — not photos that only preloaded.
   onShownPhotos?: (photos: Photo[]) => void;
@@ -780,7 +788,9 @@ export function Visualizer({
 
   return (
     <div
-      className="pointer-events-none fixed inset-0 z-0 overflow-hidden"
+      className={`pointer-events-none fixed inset-0 z-0 overflow-hidden${
+        colorMode === "bw" ? " grayscale" : ""
+      }`}
       style={{ backgroundColor: holdPhotos ? "#000000" : placeholder }}
       aria-hidden="true"
     >

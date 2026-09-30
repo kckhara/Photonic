@@ -20,6 +20,7 @@ import {
 } from "@/lib/preview";
 import { estimatePositionMs } from "@/lib/tempo";
 import type {
+  ColorMode,
   Photo,
   PlaybackSample,
   SongPackage,
@@ -45,9 +46,10 @@ export default function Home() {
   // when the song ends, so preloaded-but-unseen photos stay off the list.
   const shownPhotosRef = useRef<Photo[]>([]);
   const shownVideosRef = useRef<VideoClip[]>([]);
-  // True once they pick Photos / Video / Mix, so the saved choice
-  // doesn't overwrite that click.
+  // True once they pick Photos / Video / Mix, or Black & white / Color,
+  // so the saved choice doesn't overwrite that click.
   const modeTouchedRef = useRef(false);
+  const colorTouchedRef = useRef(false);
   // True while the credits screen is up, so a second "ended" report
   // doesn't open it again.
   const creditsOpenRef = useRef(false);
@@ -94,8 +96,10 @@ export default function Home() {
   // fading in a moment later.
   const [creditPhotos, setCreditPhotos] = useState<Photo[]>([]);
   const [creditVideos, setCreditVideos] = useState<VideoClip[]>([]);
-  // Photos until we can read what they chose earlier in this visit.
+  // Photos, and black and white, until we can read what they chose
+  // earlier in this visit.
   const [visualMode, setVisualMode] = useState<VisualMode>("photos");
+  const [colorMode, setColorMode] = useState<ColorMode>("bw");
 
   useEffect(() => {
     songRef.current = song;
@@ -127,10 +131,16 @@ export default function Home() {
     return () => cancelAnimationFrame(frame);
   }, [song]);
 
-  // The Photos / Video / Mix choice lasts until this tab is closed.
+  // The Photos / Video / Mix choice, and black and white or color,
+  // last until this tab is closed.
   useEffect(() => {
     if (modeTouchedRef.current) return;
     setVisualMode(readVisualMode());
+  }, []);
+
+  useEffect(() => {
+    if (colorTouchedRef.current) return;
+    setColorMode(readColorMode());
   }, []);
 
   function setStep(step: LoginPromptStep) {
@@ -269,6 +279,12 @@ export default function Home() {
     modeTouchedRef.current = true;
     setVisualMode(mode);
     rememberVisualMode(mode);
+  }
+
+  function onColorMode(mode: ColorMode) {
+    colorTouchedRef.current = true;
+    setColorMode(mode);
+    rememberColorMode(mode);
   }
 
   function onSong(next: SongPackage | null) {
@@ -425,6 +441,7 @@ export default function Home() {
         holdPhotos={holdPhotos}
         previewMode={previewMode}
         visualMode={song?.lyricsType === "none" ? "photos" : visualMode}
+        colorMode={colorMode}
         onShownPhotos={onShownPhotos}
         onShownVideos={onShownVideos}
       />
@@ -464,6 +481,7 @@ export default function Home() {
             photosOnly={song?.lyricsType === "none"}
           />
         )}
+        {pick && <ColorModeToggle mode={colorMode} onChange={onColorMode} />}
         {pick && (
           <PlayerBar
             key={pick.pickId}
@@ -519,6 +537,27 @@ function readVisualMode(): VisualMode {
 function rememberVisualMode(mode: VisualMode) {
   try {
     sessionStorage.setItem(VISUAL_MODE_KEY, mode);
+  } catch {
+    // The choice still applies until they leave the page.
+  }
+}
+
+const COLOR_MODE_KEY = "lyric-visualizer:color-mode";
+
+/** Black and white unless they chose color earlier in this visit. */
+function readColorMode(): ColorMode {
+  try {
+    const stored = sessionStorage.getItem(COLOR_MODE_KEY);
+    if (stored === "bw" || stored === "color") return stored;
+  } catch {
+    // Some private windows block storage. Black and white still works.
+  }
+  return "bw";
+}
+
+function rememberColorMode(mode: ColorMode) {
+  try {
+    sessionStorage.setItem(COLOR_MODE_KEY, mode);
   } catch {
     // The choice still applies until they leave the page.
   }
@@ -583,6 +622,57 @@ function VisualModeToggle({
             : shown === "video"
               ? "Clips where we have them. Photos fill in the rest."
               : "Still photos, timed to the song."}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Black & white or color, for the photos and clips behind the page.
+ * Same buttons as Photos / Video / Mix. Black and white is the start.
+ */
+function ColorModeToggle({
+  mode,
+  onChange,
+}: {
+  mode: ColorMode;
+  onChange: (mode: ColorMode) => void;
+}) {
+  const options: { id: ColorMode; label: string }[] = [
+    { id: "bw", label: "Black & white" },
+    { id: "color", label: "Color" },
+  ];
+
+  return (
+    <div className="mt-4">
+      <div
+        className="flex gap-2"
+        role="group"
+        aria-label="Black and white or color"
+      >
+        {options.map((option) => {
+          const selected = option.id === mode;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => onChange(option.id)}
+              className={`rounded px-3 py-2 text-sm ${
+                selected
+                  ? "bg-white font-medium text-black"
+                  : "border border-current"
+              }`}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-sm opacity-80">
+        {mode === "color"
+          ? "Photos and clips in color."
+          : "Photos and clips in black and white."}
       </p>
     </div>
   );

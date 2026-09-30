@@ -49,6 +49,12 @@ export type VideoClip = {
  */
 export type VisualMode = "photos" | "video" | "mix";
 
+/**
+ * Whether playback pictures are black and white or in color.
+ * Remembered until the tab closes. Black and white is the default.
+ */
+export type ColorMode = "bw" | "color";
+
 // A stretch of the song that shares one picture-word.
 export type Scene = {
   // When this scene begins and ends, in milliseconds.
