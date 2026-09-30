@@ -117,13 +117,13 @@ body {
   padding: 0;
   border: 0;
   border-radius: var(--radius-about-button);
-  background: var(--color-control-fill);
+  background: transparent;
   color: var(--color-text-primary);
   cursor: pointer;
 }
 
 .about-button:hover {
-  background: var(--color-control-fill-hover);
+  opacity: 0.72;
 }
 
 .about-button:focus-visible {
