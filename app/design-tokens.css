@@ -180,7 +180,7 @@
   --space-toggle-option-height: 32px;
   --space-toggle-option-padding-x: 10px;
   --space-toggle-check-gap: 6px;
-  --space-spotify-height: 80px;
+  --space-spotify-height: 152px;
   --space-spotify-width: 568px;
   --space-about-button: 56px;
   --space-about-button-right: 40px;
@@ -241,6 +241,12 @@
   --space-checkmark: 18px;
   --space-underline-offset: 4px;
   --space-motion-slide: 24px;
+  --ease-control: cubic-bezier(0.2, 0, 0, 1);
+  --motion-expand: 403ms;
+  --motion-collapse: 317ms;
+  --motion-fade-in: 288ms;
+  --motion-fade-in-delay: 115ms;
+  --motion-fade-out: 173ms;
   --focus-ring-width: 2px;
   --focus-ring-offset: 2px;
   --border-width: 1px;

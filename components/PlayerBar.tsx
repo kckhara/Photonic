@@ -2,11 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { SearchHit } from "@/lib/deezer";
-import { estimatePositionMs } from "@/lib/tempo";
 import type { PlaybackSample, SongPackage } from "@/lib/types";
 
-// Spotify's embed needs about this much height to show the song.
-// Our own buttons sit underneath, so the bar stays small.
+// Spotify's compact player is 152px. A shorter slot crops the album art.
 const EMBED_HEIGHT = "152";
 
 // What Spotify sends on playback_update. Times are in milliseconds.
@@ -162,48 +160,28 @@ export function PlayerBar({
     };
   }, [selection]);
 
-  const heading = song
-    ? `${song.title} by ${song.artist}`
-    : selectionLabel(selection);
-
   return (
-    <section className="mt-6 space-y-3" aria-label="Player">
-      <p className="[font-size:var(--font-size-search)] [font-weight:var(--font-weight-button-outlined)] [color:var(--color-text-primary)]">
-        {heading}
-      </p>
-
+    <section className="spotify-slot" aria-label="Player">
       {status === "loading" && (
-        <p
-          className="[font-size:var(--font-size-loading)] [font-weight:var(--font-weight-loading)] [line-height:var(--line-height-loading)] [letter-spacing:var(--letter-spacing-loading)] [color:var(--color-text-secondary)]"
-          role="status"
-        >
+        <p className="spotify-status" role="status">
           {message}
         </p>
       )}
 
       {status === "error" && (
-        <p
-          className="[font-size:var(--font-size-loading)] [font-weight:var(--font-weight-loading)] [line-height:var(--line-height-loading)] [color:var(--color-text-secondary)]"
-          role="status"
-        >
+        <p className="spotify-status" role="status">
           {message}
         </p>
       )}
 
       {status === "ready" && song && !hasPhotos(song) && (
-        <p
-          className="[font-size:var(--font-size-loading)] [font-weight:var(--font-weight-loading)] [line-height:var(--line-height-loading)] [color:var(--color-text-secondary)]"
-          role="status"
-        >
+        <p className="spotify-status" role="status">
           We couldn’t load photos for this song. Please try again.
         </p>
       )}
 
       {status === "ready" && song && !song.spotifyId && (
-        <p
-          className="[font-size:var(--font-size-loading)] [font-weight:var(--font-weight-loading)] [line-height:var(--line-height-loading)] [color:var(--color-text-secondary)]"
-          role="status"
-        >
+        <p className="spotify-status" role="status">
           {song.spotifyLookup === "failed"
             ? "We couldn’t reach Spotify just now. Please try this song again."
             : "This song isn’t on Spotify, so it can’t play here. Try another one."}
@@ -280,9 +258,6 @@ function SpotifyPlayer({
     emitRef.current = emit;
   });
 
-  const [playerReady, setPlayerReady] = useState(false);
-  const [playback, setPlayback] = useState<PlaybackUpdate | null>(null);
-
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
@@ -312,7 +287,6 @@ function SpotifyPlayer({
           }
 
           controllerRef.current = controller;
-          setPlayerReady(true);
 
           // "Reload player" builds a new embed. Spotify starts it at 0,
           // so we jump back to the moment they were hearing.
@@ -337,7 +311,6 @@ function SpotifyPlayer({
 
             const data = readPlayback(event);
             playbackRef.current = data;
-            setPlayback(data);
             const positionMs =
               typeof data.position === "number" ? data.position : 0;
             // Hand the photos this reading, stamped with the time it arrived
@@ -413,113 +386,24 @@ function SpotifyPlayer({
       isBuffering: false,
     };
     playbackRef.current = nextPlayback;
-    setPlayback(nextPlayback);
     emitRef.current(nextPlayback, 0, true);
   }, [restartNonce]);
 
-  function onPlayPause() {
-    const controller = controllerRef.current;
-    if (!controller) return;
-
-    const current = playbackRef.current;
-
-    // isPaused is missing until the first update — treat that as "not started".
-    // Freeze or resume the photos immediately. Spotify confirms a moment later.
-    if (current?.isPaused === false) {
-      controller.pause();
-      noteTransport(false);
-      return;
-    }
-    if (current?.isPaused) {
-      controller.resume();
-      noteTransport(true);
-      return;
-    }
-    controller.play();
-    noteTransport(true);
-  }
-
-  function onSeek(deltaSeconds: number) {
-    // Skip from the smooth position, not the last once-a-second report,
-    // so the photos jump to the same place as the music.
-    const positionMs = Math.max(
-      0,
-      estimatePositionMs(sampleRef.current) + deltaSeconds * 1000,
-    );
-    controllerRef.current?.seek(positionMs / 1000);
-
-    const previous = playbackRef.current;
-    const nextPlayback: PlaybackUpdate = {
-      ...previous,
-      position: positionMs,
-    };
-    playbackRef.current = nextPlayback;
-    setPlayback(nextPlayback);
-    emit(nextPlayback, positionMs, sampleRef.current?.isPlaying ?? false);
-  }
-
-  function noteTransport(isPlaying: boolean) {
-    const positionMs = estimatePositionMs(sampleRef.current);
-    const previous = playbackRef.current;
-    const nextPlayback: PlaybackUpdate = {
-      ...previous,
-      position: positionMs,
-      isPaused: !isPlaying,
-      isBuffering: false,
-    };
-    playbackRef.current = nextPlayback;
-    setPlayback(nextPlayback);
-    emit(nextPlayback, positionMs, isPlaying);
-  }
-
-  // False until Spotify tells us the song is actually playing.
-  const isPlaying = playback?.isPaused === false;
-
   return (
-    <div className="space-y-3">
-      {/* Spotify injects its player here */}
-      <div ref={hostRef} className="min-h-[152px] w-full" />
-
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={onPlayPause}
-          disabled={!playerReady}
-          className="rounded-[var(--radius-prompt-button)] bg-[var(--color-button-filled)] px-3 py-2 [font-size:var(--font-size-button-filled)] [font-weight:var(--font-weight-button-filled)] [line-height:var(--line-height-button-filled)] [letter-spacing:var(--letter-spacing-button-filled)] text-[color:var(--color-text-on-selected)] hover:bg-[var(--color-button-filled-hover)] disabled:opacity-40"
-        >
-          {isPlaying ? "Pause" : "Play"}
-        </button>
-        <button
-          type="button"
-          onClick={() => onSeek(-10)}
-          disabled={!playerReady}
-          className="rounded-[var(--radius-prompt-button)] border-[length:var(--border-width)] border-solid [border-color:var(--color-outline)] bg-transparent px-3 py-2 [font-size:var(--font-size-button-outlined)] [font-weight:var(--font-weight-button-outlined)] [line-height:var(--line-height-button-outlined)] [letter-spacing:var(--letter-spacing-button-outlined)] text-[color:var(--color-text-primary)] hover:bg-[var(--color-hover-outlined)] disabled:opacity-40"
-        >
-          −10s
-        </button>
-        <button
-          type="button"
-          onClick={() => onSeek(10)}
-          disabled={!playerReady}
-          className="rounded-[var(--radius-prompt-button)] border-[length:var(--border-width)] border-solid [border-color:var(--color-outline)] bg-transparent px-3 py-2 [font-size:var(--font-size-button-outlined)] [font-weight:var(--font-weight-button-outlined)] [line-height:var(--line-height-button-outlined)] [letter-spacing:var(--letter-spacing-button-outlined)] text-[color:var(--color-text-primary)] hover:bg-[var(--color-hover-outlined)] disabled:opacity-40"
-        >
-          +10s
-        </button>
-        {showLoginLink && (
-          <button
-            type="button"
-            onClick={onShowLoginPrompt}
-            className="px-1 py-2 underline underline-offset-[var(--space-underline-offset)] [font-size:var(--font-size-credits-link)] [font-weight:var(--font-weight-credits-link)] [color:var(--color-link)] hover:[color:var(--color-link-hover)]"
-          >
-            Log in for full songs
-          </button>
-        )}
+    <div className="spotify-player">
+      {/* Spotify injects its player here. */}
+      <div className="spotify-embed">
+        <div ref={hostRef} />
       </div>
-
-      <p className="[font-size:var(--font-size-credits-caption)] [font-weight:var(--font-weight-credits-caption)] [color:var(--color-text-secondary)]">
-        If the music doesn’t start, press Play. Some browsers wait for that
-        extra click.
-      </p>
+      {showLoginLink && (
+        <button
+          type="button"
+          className="spotify-login-link"
+          onClick={onShowLoginPrompt}
+        >
+          Log in for full songs
+        </button>
+      )}
     </div>
   );
 }
@@ -529,13 +413,6 @@ function loadingMessage(selection: SearchHit): string {
     return "Finding their top song…";
   }
   return "Loading the song…";
-}
-
-function selectionLabel(selection: SearchHit): string {
-  if (selection.type === "song") {
-    return `${selection.title} by ${selection.artistName}`;
-  }
-  return selection.name;
 }
 
 /**

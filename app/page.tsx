@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { AboutButton } from "@/components/AboutButton";
 import { Credits } from "@/components/Credits";
 import { NoLyricsMessage, NO_LYRICS_INTRO_MS } from "@/components/NoLyricsMessage";
@@ -31,8 +31,10 @@ import type {
 
 /**
  * Homepage. A first visit shows the search bar, the About button, and a
- * centered introduction. After a song is chosen, the player sits under
- * the search and photos fill the screen behind them.
+ * centered introduction. After a song is chosen, the media filters and
+ * the Spotify player sit under the search, and photos fill the screen.
+ * If nothing moves for a few seconds, the search and filters fade out
+ * and the player rises to the top. Any movement brings them back.
  * This file runs in the browser because it has to remember the chosen song.
  *
  * If Spotify is only playing a 30-second preview, a small login panel
@@ -41,6 +43,10 @@ import type {
  * When a full song finishes, a credits screen covers the page. A preview
  * never uses that screen — its ending stays on the login panel.
  */
+
+// How long the page stays still before the search and filters hide.
+const IDLE_MS = 3000;
+
 export default function Home() {
   // pickId changes on every choice, even the same row twice, so the player
   // starts that request from scratch instead of keeping the previous song.
@@ -99,11 +105,12 @@ export default function Home() {
   // fading in a moment later.
   const [creditPhotos, setCreditPhotos] = useState<Photo[]>([]);
   const [creditVideos, setCreditVideos] = useState<VideoClip[]>([]);
-  // Photos, and black and white, until we can read what they chose
+  // Photos & Videos, and black and white, until we can read what they chose
   // earlier in this visit.
-  const [visualMode, setVisualMode] = useState<VisualMode>("photos");
+  const [visualMode, setVisualMode] = useState<VisualMode>("mix");
   const [colorMode, setColorMode] = useState<ColorMode>("bw");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [controlsIdle, setControlsIdle] = useState(false);
 
   useEffect(() => {
     songRef.current = song;
@@ -146,6 +153,51 @@ export default function Home() {
     if (colorTouchedRef.current) return;
     setColorMode(readColorMode());
   }, []);
+
+  // Hide the search and filters after a still moment, then bring them
+  // back when the pointer, keyboard, or wheel moves.
+  useEffect(() => {
+    if (!pick || searchOpen) return;
+
+    let idle = false;
+    let suppressUntil = 0;
+    let timer = 0;
+
+    function goIdle() {
+      idle = true;
+      // Ignore the pointer events the moving player can fire on its own.
+      suppressUntil = performance.now() + 403;
+      setControlsIdle(true);
+    }
+
+    function wake(event: Event) {
+      if (performance.now() < suppressUntil) return;
+      if (
+        event.type === "pointermove" &&
+        event instanceof PointerEvent &&
+        event.movementX === 0 &&
+        event.movementY === 0
+      ) {
+        return;
+      }
+      window.clearTimeout(timer);
+      if (idle) {
+        idle = false;
+        setControlsIdle(false);
+      }
+      timer = window.setTimeout(goIdle, IDLE_MS);
+    }
+
+    timer = window.setTimeout(goIdle, IDLE_MS);
+    const events = ["pointermove", "pointerdown", "keydown", "wheel"] as const;
+    for (const name of events) {
+      window.addEventListener(name, wake, { passive: true });
+    }
+    return () => {
+      window.clearTimeout(timer);
+      for (const name of events) window.removeEventListener(name, wake);
+    };
+  }, [pick, searchOpen]);
 
   function setStep(step: LoginPromptStep) {
     promptStepRef.current = step;
@@ -277,6 +329,7 @@ export default function Home() {
     resetPreviewState();
     shownPhotosRef.current = [];
     shownVideosRef.current = [];
+    setControlsIdle(false);
   }
 
   function onVisualMode(mode: VisualMode) {
@@ -415,7 +468,13 @@ export default function Home() {
     resetPreviewState();
     shownPhotosRef.current = [];
     shownVideosRef.current = [];
+    setControlsIdle(false);
     setSearchResetKey((current) => current + 1);
+  }
+
+  function onSearchOpenChange(open: boolean) {
+    if (open) setControlsIdle(false);
+    setSearchOpen(open);
   }
 
   function onShownPhotos(photos: Photo[]) {
@@ -428,16 +487,10 @@ export default function Home() {
     if (creditsOpenRef.current) setCreditVideos(videos);
   }
 
-  // White words need a dark full-screen behind them. That's the photos,
-  // the opening title card, or the black screen under the no-lyrics sentence.
-  // A failed load has none of those, so the words stay the normal color.
-  const hasPhotos =
-    song?.scenes.some((scene) => scene.photos.length > 0) ?? false;
-  const darkScreen =
-    holdPhotos || (song != null && (song.lyricsType !== "none" || hasPhotos));
-
   return (
-    <div className="relative min-h-screen">
+    <div
+      className={`relative min-h-screen${pick && controlsIdle ? " is-controls-idle" : ""}`}
+    >
       <Visualizer
         key={pick?.pickId ?? 0}
         song={song}
@@ -449,44 +502,45 @@ export default function Home() {
         onShownPhotos={onShownPhotos}
         onShownVideos={onShownVideos}
       />
-      {/* A light darkening, stronger near the words, so the photo stays
-          visible and the search text can still be read on top of it. */}
-      {darkScreen && !showNoLyricsSentence && (
-        <div
-          aria-hidden="true"
-          className="pointer-events-none fixed inset-0 z-[1] bg-gradient-to-b from-[var(--color-bg-black)]/70 via-[var(--color-bg-black)]/20 to-[var(--color-bg-black)]/30"
-        />
-      )}
       {showNoLyricsSentence && (
         <div
           aria-hidden="true"
           className="pointer-events-none fixed inset-0 z-[6] bg-[var(--color-bg-black)]"
         />
       )}
+      {showNoLyricsSentence && (
+        <div className="no-lyrics-overlay">
+          <NoLyricsMessage />
+        </div>
+      )}
       {/* While credits cover the page, the search and player behind
           them should not take clicks or keyboard focus. */}
       <div inert={showCredits ? true : undefined}>
-        <div className="home-search-slot">
+        <div
+          className="home-search-slot"
+          inert={pick && controlsIdle ? true : undefined}
+        >
           <SearchBox
             onSelect={onSelect}
             resetKey={searchResetKey}
-            onOpenChange={setSearchOpen}
+            onOpenChange={onSearchOpenChange}
           />
         </div>
         {!pick && !searchOpen && <HomeIntro />}
         {pick && (
           <main className="home-player-column">
-            {showNoLyricsSentence && (
-              <div className="mt-10 text-center">
-                <NoLyricsMessage />
+            <div className="toggle-slot">
+              <div className="toggle-slot-clip">
+                <div className="toggle-row">
+                  <VisualModeToggle
+                    mode={visualMode}
+                    onChange={onVisualMode}
+                    photosOnly={song?.lyricsType === "none"}
+                  />
+                  <ColorModeToggle mode={colorMode} onChange={onColorMode} />
+                </div>
               </div>
-            )}
-            <VisualModeToggle
-              mode={visualMode}
-              onChange={onVisualMode}
-              photosOnly={song?.lyricsType === "none"}
-            />
-            <ColorModeToggle mode={colorMode} onChange={onColorMode} />
+            </div>
             <PlayerBar
               key={pick.pickId}
               selection={pick.hit}
@@ -497,7 +551,7 @@ export default function Home() {
               playerCommand={playerCommand}
             />
             {promptOpen && previewMode && (
-              <div className="mt-4">
+              <div className="home-login-slot">
                 <SpotifyLoginPrompt
                   step={promptStep}
                   onLogin={onLogin}
@@ -548,7 +602,7 @@ function HomeIntro() {
 
 const VISUAL_MODE_KEY = "lyric-visualizer:visual-mode";
 
-/** What they last chose in this visit. Photos if they haven't chosen. */
+/** What they last chose in this visit. Photos & Videos if they haven't chosen. */
 function readVisualMode(): VisualMode {
   try {
     const stored = sessionStorage.getItem(VISUAL_MODE_KEY);
@@ -556,9 +610,9 @@ function readVisualMode(): VisualMode {
       return stored;
     }
   } catch {
-    // Some private windows block storage. Photos still works.
+    // Some private windows block storage. Photos & Videos still works.
   }
-  return "photos";
+  return "mix";
 }
 
 function rememberVisualMode(mode: VisualMode) {
@@ -591,8 +645,12 @@ function rememberColorMode(mode: ColorMode) {
 }
 
 /**
- * Photos, Video, or Mix. Plain on purpose — the real design is Phase 10.
- * Mix plays clips only on words that repeat, like a chorus.
+ * Photos & Videos, Photos, or Videos.
+ * Photos & Videos plays a clip when a word comes back, like a chorus, and
+ * photos the rest of the time. Photo is stills. Video is a clip wherever
+ * one exists, with a photo filling in when it doesn't.
+ * No lyrics means there is nothing to cut a clip to, so only Photo works.
+ * The saved choice is left alone for the next song.
  */
 function VisualModeToggle({
   mode,
@@ -601,63 +659,31 @@ function VisualModeToggle({
 }: {
   mode: VisualMode;
   onChange: (mode: VisualMode) => void;
-  // No lyrics means there is nothing to cut a clip to, so only Photos works.
-  // The saved Video or Mix choice is left alone for the next song.
   photosOnly?: boolean;
 }) {
   const options: { id: VisualMode; label: string }[] = [
+    { id: "mix", label: "Photos & Videos" },
     { id: "photos", label: "Photos" },
-    { id: "video", label: "Video" },
-    { id: "mix", label: "Mix" },
+    { id: "video", label: "Videos" },
   ];
   const shown = photosOnly ? "photos" : mode;
 
   return (
-    <div className="mt-6">
-      <div className="flex gap-2" role="group" aria-label="Photos, video, or mix">
-        {options.map((option) => {
-          const selected = option.id === shown;
-          const unavailable = photosOnly && option.id !== "photos";
-          return (
-            <button
-              key={option.id}
-              type="button"
-              aria-pressed={selected}
-              aria-disabled={unavailable}
-              disabled={unavailable}
-              onClick={() => {
-                // Photos is already on. Don't overwrite a saved Video or Mix choice.
-                if (photosOnly) return;
-                onChange(option.id);
-              }}
-              className={`rounded-[var(--radius-toggle-option)] px-3 py-2 [font-size:var(--font-size-toggle)] [font-weight:var(--font-weight-toggle)] [line-height:var(--line-height-toggle)] [letter-spacing:var(--letter-spacing-toggle)] ${
-                selected
-                  ? "bg-[var(--color-selected-segment)] text-[color:var(--color-text-on-selected)]"
-                  : "border-[length:var(--border-width)] border-solid [border-color:var(--color-outline)] text-[color:var(--color-text-primary)]"
-              } disabled:cursor-not-allowed disabled:opacity-40`}
-            >
-              {option.label}
-            </button>
-          );
-        })}
-      </div>
-      <p className="mt-2 [font-size:var(--font-size-credits-caption)] [font-weight:var(--font-weight-credits-caption)] [color:var(--color-text-secondary)]">
-        {photosOnly
-          ? "No lyrics for this song, so only photos play."
-          : shown === "mix"
-            ? "Video on words that repeat, like a chorus. Photos on the rest."
-            : shown === "video"
-              ? "Clips where we have them. Photos fill in the rest."
-              : "Still photos, timed to the song."}
-      </p>
-    </div>
+    <SegmentedControl
+      label="Photos and videos"
+      className="toggle-bar-media"
+      options={options}
+      value={shown}
+      onChange={(next) => {
+        if (photosOnly) return;
+        onChange(next);
+      }}
+      isDisabled={(id) => photosOnly && id !== "photos"}
+    />
   );
 }
 
-/**
- * Black & white or color, for the photos and clips behind the page.
- * Same buttons as Photos / Video / Mix. Black and white is the start.
- */
+/** Black & White or Color. Black and white is the start. */
 function ColorModeToggle({
   mode,
   onChange,
@@ -666,42 +692,116 @@ function ColorModeToggle({
   onChange: (mode: ColorMode) => void;
 }) {
   const options: { id: ColorMode; label: string }[] = [
-    { id: "bw", label: "Black & white" },
+    { id: "bw", label: "Black & White" },
     { id: "color", label: "Color" },
   ];
 
   return (
-    <div className="mt-4">
-      <div
-        className="flex gap-2"
-        role="group"
-        aria-label="Black and white or color"
-      >
-        {options.map((option) => {
-          const selected = option.id === mode;
-          return (
-            <button
-              key={option.id}
-              type="button"
-              aria-pressed={selected}
-              onClick={() => onChange(option.id)}
-              className={`rounded-[var(--radius-toggle-option)] px-3 py-2 [font-size:var(--font-size-toggle)] [font-weight:var(--font-weight-toggle)] [line-height:var(--line-height-toggle)] [letter-spacing:var(--letter-spacing-toggle)] ${
-                selected
-                  ? "bg-[var(--color-selected-segment)] text-[color:var(--color-text-on-selected)]"
-                  : "border-[length:var(--border-width)] border-solid [border-color:var(--color-outline)] text-[color:var(--color-text-primary)]"
-              }`}
-            >
-              {option.label}
-            </button>
-          );
-        })}
-      </div>
-      <p className="mt-2 [font-size:var(--font-size-credits-caption)] [font-weight:var(--font-weight-credits-caption)] [color:var(--color-text-secondary)]">
-        {mode === "color"
-          ? "Photos and clips in color."
-          : "Photos and clips in black and white."}
-      </p>
+    <SegmentedControl
+      label="Black and white or color"
+      className="toggle-bar-color"
+      options={options}
+      value={mode}
+      onChange={onChange}
+    />
+  );
+}
+
+/**
+ * One rounded bar of options. Only one can be selected.
+ * The checkmark sits on the selected label, so that option grows a little.
+ */
+function SegmentedControl<T extends string>({
+  label,
+  className,
+  options,
+  value,
+  onChange,
+  isDisabled,
+}: {
+  label: string;
+  className: string;
+  options: { id: T; label: string }[];
+  value: T;
+  onChange: (id: T) => void;
+  isDisabled?: (id: T) => boolean;
+}) {
+  const buttons = useRef<(HTMLButtonElement | null)[]>([]);
+
+  function selectAt(index: number) {
+    const option = options[index];
+    if (!option || isDisabled?.(option.id)) return;
+    onChange(option.id);
+    buttons.current[index]?.focus();
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const forward = event.key === "ArrowRight" || event.key === "ArrowDown";
+    const backward = event.key === "ArrowLeft" || event.key === "ArrowUp";
+    if (!forward && !backward) return;
+
+    event.preventDefault();
+    const current = Math.max(
+      0,
+      options.findIndex((option) => option.id === value),
+    );
+    const direction = forward ? 1 : -1;
+
+    for (let step = 1; step <= options.length; step += 1) {
+      const index =
+        (current + direction * step + options.length) % options.length;
+      if (isDisabled?.(options[index].id)) continue;
+      selectAt(index);
+      return;
+    }
+  }
+
+  return (
+    <div
+      className={`toggle-bar ${className}`}
+      role="radiogroup"
+      aria-label={label}
+      onKeyDown={onKeyDown}
+    >
+      {options.map((option, index) => {
+        const selected = option.id === value;
+        const disabled = isDisabled?.(option.id) ?? false;
+        return (
+          <button
+            key={option.id}
+            ref={(node) => {
+              buttons.current[index] = node;
+            }}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            aria-disabled={disabled}
+            disabled={disabled}
+            tabIndex={selected ? 0 : -1}
+            className={`toggle-option${selected ? " is-selected" : ""}`}
+            onClick={() => selectAt(index)}
+          >
+            {selected && <CheckIcon />}
+            <span>{option.label}</span>
+          </button>
+        );
+      })}
     </div>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg viewBox="0 0 18 18" aria-hidden="true" className="toggle-check">
+      <path
+        d="M3.6 9.2 7.1 12.6 14.4 5.4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
