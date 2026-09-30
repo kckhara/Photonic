@@ -60,8 +60,11 @@ export function estimatePositionMs(
 }
 
 /**
- * How many times the photo will change during this stretch of the song.
- * One photo per interval, including the photo at the start of the stretch.
+ * How many photos this stretch needs.
+ * One at the start, then another each full interval that still fits
+ * before the stretch ends. A leftover shorter than one interval does
+ * not get its own photo — that picture would appear and immediately
+ * be replaced when the next lyric starts.
  */
 export function photoSlotCount(
   startMs: number,
@@ -71,7 +74,18 @@ export function photoSlotCount(
   const interval = imageIntervalMs(bpm);
   const span = Math.max(0, endMs - startMs);
   if (!(interval > 0)) return 1;
-  return Math.floor(Math.max(0, span - 1) / interval) + 1;
+  return lastPhotoStep(span, interval) + 1;
+}
+
+/**
+ * The last photo to start during a stretch of this length.
+ * Step 0 is the photo at the start. The next step starts only when a
+ * full interval is still left, so the picture can stay up for a bar
+ * instead of flashing and then jumping to the next lyric.
+ */
+function lastPhotoStep(spanMs: number, intervalMs: number): number {
+  if (!(intervalMs > 0)) return 0;
+  return Math.max(0, Math.floor(Math.max(0, spanMs) / intervalMs) - 1);
 }
 
 /** The photo that should be on screen at this moment, if there is one. */
@@ -101,8 +115,12 @@ export function frameAtPosition(
   const interval = imageIntervalMs(bpm);
   // Which photo inside this scene. Walk forward only. Never go back to
   // an earlier photo in the same scene. If we run out, hold the last one.
+  // Don't start a new photo in the leftover at the end of the line: that
+  // picture would show for a fraction of a bar, then the next lyric
+  // would cut it off.
   const steps = Math.floor((position - scene.startMs) / interval);
-  const index = Math.min(Math.max(0, steps), scene.photos.length - 1);
+  const fitted = lastPhotoStep(scene.endMs - scene.startMs, interval);
+  const index = Math.min(Math.max(0, steps), fitted, scene.photos.length - 1);
   const photo = scene.photos[index];
   if (!photo) return null;
 
@@ -140,9 +158,7 @@ export function upcomingPhotoSrcs(
       positionMs > scene.startMs
         ? Math.floor((positionMs - scene.startMs) / interval) + 1
         : 0;
-    const throughStep = Math.floor(
-      Math.max(0, scene.endMs - 1 - scene.startMs) / interval,
-    );
+    const throughStep = lastPhotoStep(scene.endMs - scene.startMs, interval);
 
     for (let step = fromStep; step <= throughStep && srcs.length < count; step += 1) {
       const index = Math.min(step, scene.photos.length - 1);
