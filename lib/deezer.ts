@@ -17,6 +17,8 @@ export type SongHit = {
   title: string;
   artistName: string;
   artworkUrl: string | null;
+  // Deezer's length for this recording, in seconds. 0 when it wasn't sent.
+  durationSeconds: number;
 };
 
 export type ArtistHit = {
@@ -32,6 +34,7 @@ export type SearchHit = SongHit | ArtistHit;
 type DeezerTrack = {
   id?: number;
   title?: string;
+  duration?: number;
   artist?: { name?: string };
   album?: { cover_small?: string };
 };
@@ -102,6 +105,7 @@ function toSong(track: DeezerTrack): SongHit | null {
     title: track.title,
     artistName: track.artist?.name || "Unknown artist",
     artworkUrl: track.album?.cover_small || null,
+    durationSeconds: typeof track.duration === "number" ? track.duration : 0,
   };
 }
 

@@ -24,10 +24,13 @@ type SearchStatus = "idle" | "loading" | "done" | "error";
 export function SearchBox({
   onSelect,
   resetKey = 0,
+  onOpenChange,
 }: {
   onSelect: (hit: SearchHit) => void;
   // Bumps when "New search" is clicked, so the field clears.
   resetKey?: number;
+  // True while the results list is open, so the homepage intro can step aside.
+  onOpenChange?: (open: boolean) => void;
 }) {
   const [query, setQuery] = useState("");
   const [songs, setSongs] = useState<SongHit[]>([]);
@@ -176,109 +179,169 @@ export function SearchBox({
   const activeId =
     activeIndex >= 0 ? `search-option-${activeIndex}` : undefined;
 
+  useEffect(() => {
+    onOpenChange?.(showDropdown);
+  }, [onOpenChange, showDropdown]);
+
+  function clearQuery() {
+    setQuery("");
+    inputRef.current?.focus();
+  }
+
   return (
     <div ref={boxRef} className="w-full">
-      <label
-        htmlFor="song-search"
-        className="mb-2 block [font-size:var(--font-size-credits-caption)] [font-weight:var(--font-weight-credits-caption)] [line-height:var(--line-height-credits-caption)] [letter-spacing:var(--letter-spacing-credits-caption)] [color:var(--color-text-primary)]"
-      >
-        Song or musician
+      <label htmlFor="song-search" className="sr-only">
+        Search a song or musician
       </label>
       {/* The list is positioned against this box only, so it sits
-          directly under the field and not under the hint text. */}
+          directly under the field. */}
       <div className="relative">
-        <input
-          ref={inputRef}
-          id="song-search"
-          type="text"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={onKeyDown}
-          onFocus={() => {
-            if (query.trim().length >= MIN_CHARACTERS) setIsOpen(true);
-          }}
-          placeholder="Search"
-          autoComplete="off"
-          role="combobox"
-          aria-expanded={showDropdown}
-          aria-controls="search-results"
-          aria-activedescendant={showDropdown ? activeId : undefined}
-          aria-autocomplete="list"
-          className="w-full rounded-[var(--radius-search)] bg-[var(--color-control-fill)] px-3 py-2 [font-size:var(--font-size-search)] [font-weight:var(--font-weight-search)] [line-height:var(--line-height-search)] [letter-spacing:var(--letter-spacing-search)] [color:var(--color-text-primary)] outline-none placeholder:[color:var(--color-text-secondary)]"
-        />
+        <div className={`search-bar${query ? " is-filled" : ""}`}>
+          <span className="search-bar-icon" aria-hidden="true">
+            <SearchIcon />
+          </span>
+          <input
+            ref={inputRef}
+            id="song-search"
+            type="text"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={onKeyDown}
+            onFocus={() => {
+              if (query.trim().length >= MIN_CHARACTERS) setIsOpen(true);
+            }}
+            placeholder="Search a song or musician"
+            autoComplete="off"
+            role="combobox"
+            aria-expanded={showDropdown}
+            aria-controls="search-results"
+            aria-activedescendant={showDropdown ? activeId : undefined}
+            aria-autocomplete="list"
+          />
+          {query && (
+            <button
+              type="button"
+              className="search-bar-clear"
+              aria-label="Clear search"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={clearQuery}
+            >
+              <ClearIcon />
+            </button>
+          )}
+        </div>
 
         {showDropdown && (
           <div
             id="search-results"
             role="listbox"
             aria-label="Search results"
-            className="absolute left-0 right-0 top-full z-10 mt-[var(--space-dropdown-gap)] rounded-[var(--radius-dropdown)] border-[length:var(--border-width)] border-solid [border-color:var(--color-border-subtle)] bg-[var(--color-surface-overlay)] [color:var(--color-text-primary)] shadow-[var(--shadow-overlay)]"
+            className="search-results"
           >
-          {status === "loading" && (
-            <p className="px-3 py-2 [font-size:var(--font-size-credits-caption)] [font-weight:var(--font-weight-credits-caption)] [color:var(--color-text-secondary)]">
-              Searching…
-            </p>
-          )}
+            {status === "loading" && (
+              <p className="search-results-status">Searching…</p>
+            )}
 
-          {status === "error" && (
-            <p className="px-3 py-2 [font-size:var(--font-size-credits-caption)] [font-weight:var(--font-weight-credits-caption)] [color:var(--color-text-primary)]">
-              Search isn’t available right now. Try again in a moment.
-            </p>
-          )}
+            {status === "error" && (
+              <p className="search-results-status">
+                Search isn’t available right now. Try again in a moment.
+              </p>
+            )}
 
-          {status === "done" && items.length === 0 && (
-            <p className="px-3 py-2 [font-size:var(--font-size-credits-caption)] [font-weight:var(--font-weight-credits-caption)] [color:var(--color-text-secondary)]">
-              No matches.
-            </p>
-          )}
+            {status === "done" && items.length === 0 && (
+              <p className="search-results-status">No matches.</p>
+            )}
 
-          {artists.length > 0 && (
-            <ResultGroup label="Artists">
-              {artists.map((artist, index) => (
-                <ResultRow
-                  key={`artist-${artist.id}`}
-                  id={`search-option-${index}`}
-                  active={index === activeIndex}
-                  artworkUrl={artist.artworkUrl}
-                  title={artist.name}
-                  subtitle="Artist"
-                  shape="avatar"
-                  onHighlight={() => setActiveIndex(index)}
-                  onChoose={() => choose(artist)}
-                />
-              ))}
-            </ResultGroup>
-          )}
-
-          {songs.length > 0 && (
-            <ResultGroup label="Songs">
-              {songs.map((song, index) => {
-                const optionIndex = artists.length + index;
-                return (
+            {artists.length > 0 && (
+              <ResultGroup label="Artists">
+                {artists.map((artist, index) => (
                   <ResultRow
-                    key={`song-${song.id}`}
-                    id={`search-option-${optionIndex}`}
-                    active={optionIndex === activeIndex}
-                    artworkUrl={song.artworkUrl}
-                    title={song.title}
-                    subtitle={song.artistName}
-                    shape="art"
-                    onHighlight={() => setActiveIndex(optionIndex)}
-                    onChoose={() => choose(song)}
+                    key={`artist-${artist.id}`}
+                    id={`search-option-${index}`}
+                    active={index === activeIndex}
+                    artworkUrl={artist.artworkUrl}
+                    title={artist.name}
+                    subtitle="Artist"
+                    shape="avatar"
+                    onHighlight={() => setActiveIndex(index)}
+                    onChoose={() => choose(artist)}
                   />
-                );
-              })}
-            </ResultGroup>
-          )}
+                ))}
+              </ResultGroup>
+            )}
+
+            {artists.length > 0 && songs.length > 0 && (
+              <hr className="search-results-divider" />
+            )}
+
+            {songs.length > 0 && (
+              <ResultGroup label="Songs">
+                {songs.map((song, index) => {
+                  const optionIndex = artists.length + index;
+                  return (
+                    <ResultRow
+                      key={`song-${song.id}`}
+                      id={`search-option-${optionIndex}`}
+                      active={optionIndex === activeIndex}
+                      artworkUrl={song.artworkUrl}
+                      title={song.title}
+                      subtitle={song.artistName}
+                      length={formatLength(song.durationSeconds)}
+                      shape="song"
+                      onHighlight={() => setActiveIndex(optionIndex)}
+                      onChoose={() => choose(song)}
+                    />
+                  );
+                })}
+              </ResultGroup>
+            )}
           </div>
         )}
       </div>
-
-      <p className="mt-2 [font-size:var(--font-size-credits-caption)] [font-weight:var(--font-weight-credits-caption)] [color:var(--color-text-secondary)]">
-        Type at least 2 letters. Arrow keys move through the list, Enter
-        chooses one.
-      </p>
     </div>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className="size-[var(--space-icon)]"
+      fill="none"
+    >
+      <circle
+        cx="10.5"
+        cy="10.5"
+        r="6.25"
+        stroke="currentColor"
+        strokeWidth="var(--space-icon-stroke)"
+      />
+      <path
+        d="M15.2 15.2 20 20"
+        stroke="currentColor"
+        strokeWidth="var(--space-icon-stroke)"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function ClearIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className="size-[var(--space-icon)]"
+      fill="none"
+    >
+      <path
+        d="M7.5 7.5 16.5 16.5M16.5 7.5 7.5 16.5"
+        stroke="currentColor"
+        strokeWidth="var(--space-icon-stroke)"
+        strokeLinecap="round"
+      />
+    </svg>
   );
 }
 
@@ -291,9 +354,7 @@ function ResultGroup({
 }) {
   return (
     <div>
-      <p className="px-3 pt-2 uppercase [font-size:var(--font-size-dropdown-label)] [font-weight:var(--font-weight-dropdown-label)] [line-height:var(--line-height-dropdown-label)] [letter-spacing:var(--letter-spacing-dropdown-label)] [color:var(--color-text-secondary)]">
-        {label}
-      </p>
+      <p className="search-results-label">{label}</p>
       <ul>{children}</ul>
     </div>
   );
@@ -305,6 +366,7 @@ function ResultRow({
   artworkUrl,
   title,
   subtitle,
+  length,
   shape,
   onHighlight,
   onChoose,
@@ -314,10 +376,19 @@ function ResultRow({
   artworkUrl: string | null;
   title: string;
   subtitle: string;
-  shape: "avatar" | "art";
+  length?: string;
+  shape: "avatar" | "song";
   onHighlight: () => void;
   onChoose: () => void;
 }) {
+  const [imageFailed, setImageFailed] = useState(false);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [artworkUrl]);
+
+  const showImage = Boolean(artworkUrl) && !imageFailed;
+
   return (
     <li
       id={id}
@@ -329,42 +400,99 @@ function ResultRow({
         onChoose();
       }}
       onMouseEnter={onHighlight}
-      className={`flex cursor-pointer items-center gap-3 px-3 py-2 ${
-        active ? "bg-[var(--color-hover-row)]" : ""
-      }`}
+      className={`search-result${active ? " is-active" : ""}`}
     >
-      {artworkUrl ? (
-        // A plain image tag, not Next's image helper, so Deezer's
-        // artwork links work without extra image settings.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={artworkUrl}
-          alt=""
-          width={40}
-          height={40}
-          className={`size-[var(--space-dropdown-avatar)] shrink-0 bg-[var(--color-placeholder)] object-cover ${
-            shape === "avatar"
-              ? "rounded-[var(--radius-avatar)]"
-              : "rounded-[var(--radius-song-art)]"
-          }`}
-        />
-      ) : (
-        <span
-          className={`size-[var(--space-dropdown-avatar)] shrink-0 bg-[var(--color-placeholder)] ${
-            shape === "avatar"
-              ? "rounded-[var(--radius-avatar)]"
-              : "rounded-[var(--radius-song-art)]"
-          }`}
-        />
-      )}
-      <span className="min-w-0">
-        <span className="block truncate [font-size:var(--font-size-search-result-name)] [font-weight:var(--font-weight-search-result-name)] [color:var(--color-text-primary)]">
-          {title}
-        </span>
-        <span className="block truncate [font-size:var(--font-size-search-meta)] [font-weight:var(--font-weight-search-meta)] [color:var(--color-text-secondary)]">
-          {subtitle}
-        </span>
+      <span
+        className={`search-result-art${shape === "avatar" ? " is-avatar" : " is-song"}`}
+      >
+        {showImage ? (
+          // A plain image tag, not Next's image helper, so Deezer's
+          // artwork links work without extra image settings.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={artworkUrl ?? undefined}
+            alt=""
+            width={40}
+            height={40}
+            onError={() => setImageFailed(true)}
+          />
+        ) : shape === "avatar" ? (
+          <PersonIcon />
+        ) : (
+          <NoteIcon />
+        )}
       </span>
+      <span className="search-result-copy">
+        <span className="search-result-title">{title}</span>
+        <span className="search-result-meta">{subtitle}</span>
+      </span>
+      {length && <span className="search-result-length">{length}</span>}
     </li>
+  );
+}
+
+/** m:ss, matching the length shown beside a song. */
+function formatLength(seconds: number): string {
+  const safe = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(safe / 60);
+  const rest = safe % 60;
+  return `${minutes}:${String(rest).padStart(2, "0")}`;
+}
+
+function PersonIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className="size-[var(--space-icon)]"
+      fill="none"
+    >
+      <circle
+        cx="12"
+        cy="8"
+        r="3.25"
+        stroke="currentColor"
+        strokeWidth="var(--space-icon-stroke)"
+      />
+      <path
+        d="M5.6 19.2c.7-3.1 3-4.7 6.4-4.7s5.7 1.6 6.4 4.7"
+        stroke="currentColor"
+        strokeWidth="var(--space-icon-stroke)"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function NoteIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className="size-[var(--space-icon)]"
+      fill="none"
+    >
+      <path
+        d="M9 17.2V6.4l8.2-1.6v9.1"
+        stroke="currentColor"
+        strokeWidth="var(--space-icon-stroke-fine)"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle
+        cx="6.8"
+        cy="17.2"
+        r="2.15"
+        stroke="currentColor"
+        strokeWidth="var(--space-icon-stroke-fine)"
+      />
+      <circle
+        cx="15"
+        cy="14"
+        r="2.15"
+        stroke="currentColor"
+        strokeWidth="var(--space-icon-stroke-fine)"
+      />
+    </svg>
   );
 }

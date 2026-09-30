@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { AboutButton } from "@/components/AboutButton";
 import { Credits } from "@/components/Credits";
 import { NoLyricsMessage, NO_LYRICS_INTRO_MS } from "@/components/NoLyricsMessage";
 import { PlayerBar, type PlayerCommand } from "@/components/PlayerBar";
@@ -29,7 +30,9 @@ import type {
 } from "@/lib/types";
 
 /**
- * Homepage: search, then the player, with photos filling the screen behind them.
+ * Homepage. A first visit shows the search bar, the About button, and a
+ * centered introduction. After a song is chosen, the player sits under
+ * the search and photos fill the screen behind them.
  * This file runs in the browser because it has to remember the chosen song.
  *
  * If Spotify is only playing a 30-second preview, a small login panel
@@ -100,6 +103,7 @@ export default function Home() {
   // earlier in this visit.
   const [visualMode, setVisualMode] = useState<VisualMode>("photos");
   const [colorMode, setColorMode] = useState<ColorMode>("bw");
+  const [searchOpen, setSearchOpen] = useState(false);
 
   useEffect(() => {
     songRef.current = song;
@@ -459,53 +463,54 @@ export default function Home() {
           className="pointer-events-none fixed inset-0 z-[6] bg-[var(--color-bg-black)]"
         />
       )}
-      <main
-        // While credits cover the page, the search and player behind
-        // them should not take clicks or keyboard focus.
-        inert={showCredits ? true : undefined}
-        className="relative z-10 mx-auto flex w-full max-w-xl flex-col px-6 py-16 [color:var(--color-text-primary)]"
-      >
-        <h1 className="mb-6 [font-family:var(--font-family-display)] [font-size:var(--font-size-homepage-header)] [font-weight:var(--font-weight-homepage-header)] [line-height:var(--line-height-homepage-header)] [letter-spacing:var(--letter-spacing-homepage-header)] [color:var(--color-text-primary)]">
-          Lyric Visualizer
-        </h1>
-        <SearchBox onSelect={onSelect} resetKey={searchResetKey} />
-        {showNoLyricsSentence && (
-          <div className="mt-10 text-center">
-            <NoLyricsMessage />
-          </div>
-        )}
-        {pick && (
-          <VisualModeToggle
-            mode={visualMode}
-            onChange={onVisualMode}
-            photosOnly={song?.lyricsType === "none"}
+      {/* While credits cover the page, the search and player behind
+          them should not take clicks or keyboard focus. */}
+      <div inert={showCredits ? true : undefined}>
+        <div className="home-search-slot">
+          <SearchBox
+            onSelect={onSelect}
+            resetKey={searchResetKey}
+            onOpenChange={setSearchOpen}
           />
-        )}
-        {pick && <ColorModeToggle mode={colorMode} onChange={onColorMode} />}
+        </div>
+        {!pick && !searchOpen && <HomeIntro />}
         {pick && (
-          <PlayerBar
-            key={pick.pickId}
-            selection={pick.hit}
-            onSong={onSong}
-            onPlayback={onPlayback}
-            previewMode={previewMode}
-            onShowLoginPrompt={onShowLoginPrompt}
-            playerCommand={playerCommand}
-          />
-        )}
-        {promptOpen && previewMode && (
-          <div className="mt-4">
-            <SpotifyLoginPrompt
-              step={promptStep}
-              onLogin={onLogin}
-              onMaybeLater={onMaybeLater}
-              onReload={onReloadPlayer}
-              onPlayAgain={onPlayAgain}
-              onNewSearch={onNewSearch}
+          <main className="home-player-column">
+            {showNoLyricsSentence && (
+              <div className="mt-10 text-center">
+                <NoLyricsMessage />
+              </div>
+            )}
+            <VisualModeToggle
+              mode={visualMode}
+              onChange={onVisualMode}
+              photosOnly={song?.lyricsType === "none"}
             />
-          </div>
+            <ColorModeToggle mode={colorMode} onChange={onColorMode} />
+            <PlayerBar
+              key={pick.pickId}
+              selection={pick.hit}
+              onSong={onSong}
+              onPlayback={onPlayback}
+              previewMode={previewMode}
+              onShowLoginPrompt={onShowLoginPrompt}
+              playerCommand={playerCommand}
+            />
+            {promptOpen && previewMode && (
+              <div className="mt-4">
+                <SpotifyLoginPrompt
+                  step={promptStep}
+                  onLogin={onLogin}
+                  onMaybeLater={onMaybeLater}
+                  onReload={onReloadPlayer}
+                  onPlayAgain={onPlayAgain}
+                  onNewSearch={onNewSearch}
+                />
+              </div>
+            )}
+          </main>
         )}
-      </main>
+      </div>
       {showCredits && song && (
         <Credits
           song={song}
@@ -515,6 +520,28 @@ export default function Home() {
           onNewSearch={onNewSearch}
         />
       )}
+      <AboutButton />
+    </div>
+  );
+}
+
+function HomeIntro() {
+  return (
+    <div className="home-intro">
+      <div className="home-intro-copy">
+        <h1 className="home-intro-title">
+          Music and imagery,{" "}
+          <span className="home-intro-title-quiet">matched by their words</span>
+        </h1>
+        <p className="home-intro-text">
+          The lyrics find a photo or video that share keywords, with no one
+          <br />
+          choosing the pairing. Sometimes they harmonize, sometimes they
+          don&apos;t.
+          <br />
+          Either way, it&apos;s a show.
+        </p>
+      </div>
     </div>
   );
 }

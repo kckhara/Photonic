@@ -165,7 +165,7 @@
   --space-column-top: 52px;
   --space-column-x: 435px;
   --space-stack-gap: 12px;
-  --space-dropdown-gap: 4px;
+  --space-dropdown-gap: 8px;
   --space-search-height: 56px;
   --space-search-padding-right: 16px;
   --space-search-padding-left: 4px;
@@ -265,9 +265,7 @@
   --shadow-overlay: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 
-/* Spec focus ring: white, 2px, 2px offset. :where keeps specificity at 0
-   so a component can still override it. */
+:where(a, button, input, textarea, select, summary):focus,
 :where(a, button, input, textarea, select, summary):focus-visible {
-  outline: var(--focus-ring-width) solid var(--color-focus-ring);
-  outline-offset: var(--focus-ring-offset);
+  outline: none;
 }
