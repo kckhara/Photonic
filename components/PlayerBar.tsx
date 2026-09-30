@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { SearchHit } from "@/lib/deezer";
 import type { PlaybackSample, SongPackage } from "@/lib/types";
 
@@ -172,17 +173,8 @@ export function PlayerBar({
 
   return (
     <>
+      <ScreenNotices notices={notices} />
       <section className="spotify-slot" aria-label="Player">
-        {notices.length > 0 && (
-          <div className="pointer-events-none fixed inset-0 z-[8] flex flex-col items-center justify-center gap-3 px-8 text-center">
-            {notices.map((text) => (
-              <p key={text} className="screen-status" role="status">
-                {text}
-              </p>
-            ))}
-          </div>
-        )}
-
         {status === "ready" && song?.spotifyId && (
           <SpotifyPlayer
             key={playerSlot.generation}
@@ -506,6 +498,32 @@ function friendlyLoadMessage(error: unknown): string {
 
 function hasPhotos(song: SongPackage): boolean {
   return song.scenes.some((scene) => scene.photos.length > 0);
+}
+
+/**
+ * Loading and error lines, centered on the page.
+ * They are drawn on the document itself. The player slot slides in from
+ * above, and a slide like that would carry a centered line off screen.
+ */
+function ScreenNotices({ notices }: { notices: string[] }) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted || notices.length === 0) return null;
+
+  return createPortal(
+    <div className="pointer-events-none fixed inset-0 z-[8] flex flex-col items-center justify-center gap-3 px-8 text-center">
+      {notices.map((text) => (
+        <p key={text} className="screen-status" role="status">
+          {text}
+        </p>
+      ))}
+    </div>,
+    document.body,
+  );
 }
 
 /**
