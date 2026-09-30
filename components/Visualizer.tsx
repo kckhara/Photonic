@@ -34,6 +34,9 @@ import type {
  * A lyric line picks the scene. Inside that scene, photos take turns on
  * the beat. Two copies of the photo sit on top of each other so the new
  * one can fade in while the old one is still there (no blank flash).
+ * A smaller copy of the same photo can fade in first, while the full
+ * file is still downloading, so the screen doesn't sit on empty black.
+ * If a file fails, the picture already on screen stays.
  *
  * Before the first photo or clip, a title card shows the album cover
  * and a countdown to that first picture. Pictures and clips wait until
@@ -184,7 +187,7 @@ export function Visualizer({
   }, [visualMode]);
 
   const tokenRef = useRef(0);
-  const preloadedRef = useRef<Set<string>>(new Set());
+  const failedClipsRef = useRef<Set<string>>(new Set());
   const revealedRef = useRef<Set<number>>(new Set());
   const mountedRef = useRef(true);
 
@@ -229,6 +232,15 @@ export function Visualizer({
     // makes the old timer do nothing.
     let hideTimer = 0;
     let hideToken = 0;
+    // Where the song is, so a clip can wait until that moment's photo
+    // has actually downloaded before it fades away.
+    let clockScenes: Scene[] = [];
+    let clockPosition = 0;
+    let clockBpm = 120;
+    // When we first wanted to leave a clip and the photo wasn't ready.
+    // After a couple of seconds we fade anyway, so a stuck download
+    // can't pin the old clip on screen.
+    let clipHoldSince = 0;
 
     function videoAt(slot: 0 | 1): HTMLVideoElement | null {
       return slot === 0 ? videoRefA.current : videoRefB.current;
@@ -245,6 +257,10 @@ export function Visualizer({
     }
 
     // Start a download once. Calling this again with the same file does nothing.
+    // Playing it muted is what actually fills the buffer. A clip that only
+    // sits on preload often has no frame when we cut to it, and that cut
+    // paints black. Once a frame is in, pause the hidden copy so it doesn't
+    // keep streaming under the clip people are watching.
     function loadInto(slot: 0 | 1, src: string) {
       if (!src || bufferSrcRef.current[slot] === src) return;
       const video = videoAt(slot);
@@ -253,9 +269,34 @@ export function Visualizer({
       bufferSrcRef.current[slot] = src;
       video.muted = true;
       video.defaultMuted = true;
+      video.playsInline = true;
       video.preload = "auto";
+      video.onerror = () => {
+        if (bufferSrcRef.current[slot] !== src) return;
+        failedClipsRef.current.add(src);
+        bufferSrcRef.current[slot] = "";
+        if (frontSlotRef.current === slot && clipOnScreenRef.current) {
+          clipOnScreenRef.current = false;
+          setClipOnScreen(false);
+          setClipFade(false);
+          clipFadeRef.current = false;
+        }
+      };
+      const pump = () => {
+        if (!mountedRef.current) return;
+        if (bufferSrcRef.current[slot] !== src) return;
+        if (video.readyState >= 2) {
+          if (frontSlotRef.current !== slot && !video.paused) video.pause();
+          return;
+        }
+        void video.play().catch(() => {
+          // Autoplay can wait until the next click. The next frame tries again.
+        });
+      };
+      video.onloadeddata = pump;
       video.src = src;
       video.load();
+      pump();
     }
 
     function showStandby(clip: VideoClip | null) {
@@ -265,10 +306,36 @@ export function Visualizer({
       setStandbyClip(clip);
     }
 
+    // True once the photo for this moment is decoded, so a clip can
+    // fade onto that picture instead of onto the empty background.
+    function photoReadyNow(): boolean {
+      const next = frameAtPosition(clockScenes, clockPosition, clockBpm);
+      if (!next) return true;
+      return photoIsReady(next.photo.src);
+    }
+
     // Leave the clip. If one is actually up, dissolve it away over one
     // beat and keep it playing until that finishes. Calling this again
     // on the next frame must not restart that dissolve.
-    function hideClip(playing: boolean) {
+    // keepFrameUntilPhoto holds the last frame while the next photo
+    // downloads. Fading earlier is a black flash.
+    function hideClip(playing: boolean, keepFrameUntilPhoto = false) {
+      if (
+        keepFrameUntilPhoto &&
+        clipOnScreenRef.current &&
+        !photoReadyNow()
+      ) {
+        if (clipHoldSince === 0) clipHoldSince = performance.now();
+        if (performance.now() - clipHoldSince < 2000) {
+          if (!playing) {
+            pauseVideo(videoRefA.current);
+            pauseVideo(videoRefB.current);
+          }
+          return;
+        }
+      }
+      clipHoldSince = 0;
+
       cancelSeek();
       showStandby(null);
       shownClipIdRef.current = null;
@@ -309,6 +376,7 @@ export function Visualizer({
     }
 
     function markClipShowing(clip: VideoClip) {
+      clipHoldSince = 0;
       if (!clipOnScreenRef.current) {
         clipOnScreenRef.current = true;
         setClipOnScreen(true);
@@ -341,8 +409,11 @@ export function Visualizer({
     }
 
     // Keep the clip on the frame the song is at. While it plays, only
-    // correct a real drift — seeking every frame would stutter.
-    // While paused or after a skip, snap to the exact frame.
+    // correct a real jump — a skip, or the clip looping back to the start.
+    // Seeking for a small drift clears the picture, and the element stays
+    // black until that new frame arrives. Spotify's position twitches by
+    // less than that about once a second, so those are left alone.
+    // Never seek into a part of the file that isn't downloaded yet.
     function syncPlayback(
       video: HTMLVideoElement,
       timeSec: number,
@@ -350,8 +421,8 @@ export function Visualizer({
     ) {
       video.muted = true;
       const drift = Math.abs(video.currentTime - timeSec);
-      const snap = !playing || drift > 0.4;
-      if (snap && drift > 0.05 && video.readyState >= 1) {
+      const snap = !playing || drift > PLAYING_SEEK_SEC;
+      if (snap && drift > 0.05 && mediaCovers(video, timeSec)) {
         try {
           video.currentTime = timeSec;
         } catch {
@@ -407,9 +478,24 @@ export function Visualizer({
       scenes: Scene[],
       mode: VisualMode,
     ): boolean {
+      clockScenes = scenes;
+      clockPosition = positionMs;
+      clockBpm = songRef.current?.bpm ?? 120;
+
       if (!wanted || !scene) {
-        hideClip(playing);
+        hideClip(playing, true);
         queueNext(scenes, positionMs, mode, "");
+        return false;
+      }
+
+      // This file already failed. Leave it off and let the photos show
+      // instead of a black player.
+      if (failedClipsRef.current.has(wanted.src)) {
+        if (clipFadeRef.current) {
+          clipFadeRef.current = false;
+          setClipFade(false);
+        }
+        hideClip(false);
         return false;
       }
 
@@ -431,11 +517,38 @@ export function Visualizer({
 
       // Right file, but the first frame isn't here yet. Keep the photo
       // (or the still) up. Don't start a second download of the same file.
+      // If this player was already covering the screen, take it off —
+      // an empty video paints black and hides the photo underneath.
       if (frontVideo && bufferSrcRef.current[front] === wanted.src) {
         if (frontVideo.readyState < 2) {
           showStandby(wanted);
+          if (clipOnScreenRef.current) {
+            clipOnScreenRef.current = false;
+            setClipOnScreen(false);
+          }
           return false;
         }
+
+        const drift = Math.abs(frontVideo.currentTime - timeSec);
+        // A skip or a loop into a part we haven't downloaded. Hide the
+        // clip and seek while the photo is up, so the seek doesn't flash black.
+        // A small pause correction stays on the frame that's already showing.
+        if (drift > PLAYING_SEEK_SEC && !mediaCovers(frontVideo, timeSec)) {
+          showStandby(wanted);
+          if (clipOnScreenRef.current) {
+            clipOnScreenRef.current = false;
+            setClipOnScreen(false);
+          }
+          if (!frontVideo.seeking && frontVideo.readyState >= 1) {
+            try {
+              frontVideo.currentTime = timeSec;
+            } catch {
+              // The next frame tries again.
+            }
+          }
+          return false;
+        }
+
         cancelSeek();
         syncPlayback(frontVideo, timeSec, playing);
         pauseVideo(backVideo);
@@ -530,21 +643,24 @@ export function Visualizer({
         chosenIdRef.current = nextId;
 
         if (!next) {
-          setSlides([]);
+          // This stretch has nothing new. Keep whatever is already up
+          // instead of clearing the screen to black.
         } else {
           const token = tokenRef.current + 1;
           tokenRef.current = token;
+          const ready = photoIsReady(next.photo.src);
           const incoming: Slide = {
             photo: next.photo,
             keyword: next.keyword,
             token,
             // Under a clip that's dissolving away, the photo is already
             // fully there. Only the clip fades. A normal photo change
-            // still fades in on its own.
-            visible: instant,
+            // still fades in on its own. If the file isn't decoded yet,
+            // keep the old picture and fade when the pixels arrive.
+            visible: instant && ready,
           };
 
-          if (instant) {
+          if (instant && ready) {
             setSlides((current) => {
               const settled = current.filter((slide) => slide.visible);
               const top = settled[settled.length - 1];
@@ -565,10 +681,7 @@ export function Visualizer({
         }
       }
 
-      preloadAhead(
-        upcomingPhotoSrcs(scenes, positionMs, bpm, 3),
-        preloadedRef.current,
-      );
+      warmPhotos(scenes, positionMs, bpm);
     }
 
     const tick = () => {
@@ -597,15 +710,7 @@ export function Visualizer({
         // The black screen covers this stretch. Stop any clip that was
         // already up, so a rewind into the first 5 seconds goes quiet.
         hideClip(false);
-        preloadAhead(
-          upcomingPhotoSrcs(
-            currentSong.scenes,
-            positionMs,
-            currentSong.bpm,
-            3,
-          ),
-          preloadedRef.current,
-        );
+        warmPhotos(currentSong.scenes, positionMs, currentSong.bpm);
         if (useClips) {
           queueNext(currentSong.scenes, positionMs, mode, "");
         }
@@ -634,6 +739,9 @@ export function Visualizer({
       } else {
         const positionMs = sample ? estimatePositionMs(sample) : 0;
         const playing = Boolean(sample?.isPlaying);
+        clockScenes = scenes;
+        clockPosition = positionMs;
+        clockBpm = currentSong.bpm;
         // Rewind into the intro brings the title card back.
         // A preview has no title card — the clock isn't the song's clock.
         if (beatOnly) holdTitle(false);
@@ -649,10 +757,7 @@ export function Visualizer({
             chosenIdRef.current = null;
             setSlides([]);
           }
-          preloadAhead(
-            upcomingPhotoSrcs(scenes, positionMs, currentSong.bpm, 3),
-            preloadedRef.current,
-          );
+          warmPhotos(scenes, positionMs, currentSong.bpm);
           if (useClips) queueNext(scenes, positionMs, mode, "");
         } else {
 
@@ -663,7 +768,7 @@ export function Visualizer({
           ? updateClipLayer(wanted, scene, positionMs, playing, scenes, mode)
           : false;
 
-        if (!useClips) hideClip(playing);
+        if (!useClips) hideClip(playing, true);
 
         // Hold the photos while a clip is up, including the moment we're
         // waiting to cut from the clip that's still on screen.
@@ -697,6 +802,10 @@ export function Visualizer({
           showPhoto(scenes, positionMs, currentSong.bpm, instant);
         } else {
           photosHeld = true;
+          // The clip is covering the photos, but the picture for this
+          // moment still has to be downloaded. Otherwise the handoff
+          // fades the clip onto an empty black screen.
+          warmPhotos(scenes, positionMs, currentSong.bpm);
         }
         }
       }
@@ -710,6 +819,21 @@ export function Visualizer({
       window.clearTimeout(hideTimer);
     };
   }, []);
+
+  function giveUpSlide(token: number, src: string) {
+    // The file failed. Drop it if another picture is already up, and
+    // don't ask for it again immediately.
+    preloadingStarted.delete(src);
+    preloadingStarted.delete(quickerUrl(src));
+    loadedSrcs.delete(src);
+    loadedSrcs.delete(quickerUrl(src));
+    retryAfter.set(src, performance.now() + 4000);
+    setSlides((current) => {
+      const rest = current.filter((slide) => slide.token !== token);
+      if (!rest.some((slide) => slide.visible)) return current;
+      return rest;
+    });
+  }
 
   function revealSlide(token: number, photo: Photo) {
     if (revealedRef.current.has(token)) return;
@@ -768,18 +892,6 @@ export function Visualizer({
     visualMode !== "photos" &&
     !beatOnly &&
     song.scenes.some((scene) => sceneShowsClip(scene, visualMode));
-  // Keep the dark screen up for a no-lyrics song until the first photo
-  // is chosen, so the page doesn't flash empty between the sentence and the pictures.
-  // A preview keeps the screen up too, so photos can start on the beat.
-  if (
-    !noLyrics &&
-    !beatOnly &&
-    !showTitle &&
-    slides.length === 0 &&
-    !mayPlayClips
-  ) {
-    return null;
-  }
 
   const fadeMs = crossfadeMs(song?.bpm ?? 120);
   // Pexels sends an average color. Show it while the file is still arriving
@@ -812,20 +924,21 @@ export function Visualizer({
             zIndex={index + 1}
             onReveal={revealSlide}
             onSettled={settleSlide}
+            onGiveUp={giveUpSlide}
           />
         ))}
-      {/* Still frame while the first clip downloads and there's no photo yet. */}
+      {/* Still frame while a clip downloads and no photo is visible yet. */}
       {mayPlayClips &&
         !clipOnScreen &&
         !showTitle &&
-        slides.length === 0 &&
+        !slides.some((slide) => slide.visible) &&
         standbyClip?.poster && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={standbyClip.poster}
             alt=""
             className="absolute inset-0 h-full w-full object-cover"
-            style={{ zIndex: 30 }}
+            style={{ zIndex: 0 }}
           />
         )}
       {mayPlayClips && (
@@ -869,6 +982,20 @@ function ClipSurface({
   fade: boolean;
   fadeMs: number;
 }) {
+  // Stay on screen through a dissolve. Once the clip is fully gone,
+  // park it off to the side. A hidden video left full-screen paints a
+  // black layer in some browsers and covers the photos.
+  const [painted, setPainted] = useState(visible);
+  const [tracked, setTracked] = useState({ visible, fade });
+
+  if (tracked.visible !== visible || tracked.fade !== fade) {
+    setTracked({ visible, fade });
+    if (visible) setPainted(true);
+    else if (!fade) setPainted(false);
+  }
+
+  const onScreen = visible || painted;
+
   return (
     <video
       ref={videoRef}
@@ -876,9 +1003,14 @@ function ClipSurface({
       playsInline
       preload="auto"
       className="absolute inset-0 h-full w-full object-cover"
+      onTransitionEnd={(event) => {
+        if (event.propertyName !== "opacity") return;
+        if (!visible) setPainted(false);
+      }}
       style={{
         zIndex: 40,
         opacity: visible ? 1 : 0,
+        transform: onScreen ? undefined : "translate3d(-120vw, 0, 0)",
         transition: fade ? `opacity ${fadeMs}ms ease-in-out` : "none",
       }}
     />
@@ -991,7 +1123,9 @@ function formatCountdown(totalSeconds: number): string {
 
 /**
  * One full-screen photo.
- * It stays invisible until the file has loaded, then fades in.
+ * It stays invisible until a file has loaded, then fades in.
+ * A smaller copy fades in first when the full file is still on the way,
+ * so the crossfade has pixels instead of the empty background.
  * A plain image tag (not Next's image helper) because we fade it ourselves
  * and preload the upcoming ones. The helper would delay that.
  */
@@ -1001,15 +1135,23 @@ function FadePhoto({
   zIndex,
   onReveal,
   onSettled,
+  onGiveUp,
 }: {
   slide: Slide;
   fadeMs: number;
   zIndex: number;
   onReveal: (token: number, photo: Photo) => void;
   onSettled: (token: number) => void;
+  onGiveUp: (token: number, src: string) => void;
 }) {
   const imgRef = useRef<HTMLImageElement>(null);
+  const previewRef = useRef<HTMLImageElement>(null);
   const onRevealRef = useRef(onReveal);
+  const triesRef = useRef(0);
+  const quickSrc = quickerUrl(slide.photo.src);
+  const [sharpReady, setSharpReady] = useState(() =>
+    loadedSrcs.has(slide.photo.src),
+  );
 
   useEffect(() => {
     onRevealRef.current = onReveal;
@@ -1018,38 +1160,102 @@ function FadePhoto({
   // Cached photos can finish loading before React attaches onLoad.
   // If the file is already here, start the fade from this effect too.
   useEffect(() => {
+    triesRef.current = 0;
     const img = imgRef.current;
-    if (!img) return;
-    if (img.complete && img.naturalWidth > 0) {
-      onRevealRef.current(slide.token, slide.photo);
-    }
+    const ready =
+      loadedSrcs.has(slide.photo.src) ||
+      Boolean(img && img.complete && img.naturalWidth > 0);
+    if (!ready) return;
+    loadedSrcs.add(slide.photo.src);
+    setSharpReady(true);
+    onRevealRef.current(slide.token, slide.photo);
   }, [slide.token, slide.photo]);
 
+  useEffect(() => {
+    const preview = previewRef.current;
+    if (!preview) return;
+    if (preview.complete && preview.naturalWidth > 0) {
+      loadedSrcs.add(quickSrc);
+      onRevealRef.current(slide.token, slide.photo);
+    }
+  }, [slide.token, slide.photo, quickSrc]);
+
+  const fade = `${fadeMs}ms`;
+
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      ref={imgRef}
-      src={slide.photo.src}
-      alt=""
-      data-photo-id={slide.photo.id}
-      data-keyword={slide.keyword}
-      className="absolute inset-0 h-full w-full object-cover"
-      style={{
-        zIndex,
-        opacity: slide.visible ? 1 : 0,
-        transitionProperty: "opacity",
-        transitionDuration: `${fadeMs}ms`,
-        transitionTimingFunction: "ease-in-out",
-        backgroundColor: slide.photo.avgColor,
-      }}
-      onLoad={() => onReveal(slide.token, slide.photo)}
-      onTransitionEnd={(event) => {
-        if (event.propertyName !== "opacity") return;
-        if (event.target !== event.currentTarget) return;
-        if (!slide.visible) return;
-        onSettled(slide.token);
-      }}
-    />
+    <div
+      className="absolute inset-0"
+      style={{ zIndex, backgroundColor: slide.photo.avgColor }}
+    >
+      {quickSrc !== slide.photo.src && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          ref={previewRef}
+          src={quickSrc}
+          alt=""
+          decoding="async"
+          fetchPriority="high"
+          className="absolute inset-0 h-full w-full object-cover"
+          style={{
+            opacity: slide.visible ? 1 : 0,
+            transitionProperty: "opacity",
+            transitionDuration: fade,
+            transitionTimingFunction: "ease-in-out",
+          }}
+          onLoad={() => {
+            loadedSrcs.add(quickSrc);
+            onReveal(slide.token, slide.photo);
+          }}
+          onTransitionEnd={(event) => {
+            if (event.propertyName !== "opacity") return;
+            if (event.target !== event.currentTarget) return;
+            if (!slide.visible) return;
+            onSettled(slide.token);
+          }}
+        />
+      )}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        ref={imgRef}
+        src={slide.photo.src}
+        alt=""
+        data-photo-id={slide.photo.id}
+        data-keyword={slide.keyword}
+        fetchPriority="high"
+        decoding="async"
+        className="absolute inset-0 h-full w-full object-cover"
+        style={{
+          opacity: slide.visible && sharpReady ? 1 : 0,
+          transitionProperty: "opacity",
+          transitionDuration: fade,
+          transitionTimingFunction: "ease-in-out",
+        }}
+        onLoad={() => {
+          loadedSrcs.add(slide.photo.src);
+          setSharpReady(true);
+          onReveal(slide.token, slide.photo);
+        }}
+        onError={() => {
+          const img = imgRef.current;
+          if (img && triesRef.current < 1) {
+            triesRef.current += 1;
+            const src = slide.photo.src;
+            img.src = "";
+            img.src = src;
+            return;
+          }
+          // The smaller copy is already up. Keep that instead of going empty.
+          if ((previewRef.current?.naturalWidth ?? 0) > 0) return;
+          onGiveUp(slide.token, slide.photo.src);
+        }}
+        onTransitionEnd={(event) => {
+          if (event.propertyName !== "opacity") return;
+          if (event.target !== event.currentTarget) return;
+          if (!slide.visible || !sharpReady) return;
+          onSettled(slide.token);
+        }}
+      />
+    </div>
   );
 }
 
@@ -1067,11 +1273,132 @@ function rememberClip(shown: VideoClip[], clip: VideoClip): VideoClip[] {
 
 /** Start downloading each address once. Later fades can use the cache. */
 function preloadAhead(srcs: string[], already: Set<string>) {
+  const now = performance.now();
+
   for (const src of srcs) {
-    if (already.has(src)) continue;
+    if (!src || already.has(src) || loadedSrcs.has(src)) continue;
+    const wait = retryAfter.get(src) ?? 0;
+    if (wait > now) continue;
+    // Already downloading. Keep that Image alive — if nothing holds it,
+    // the browser cancels the request and the photo starts over when
+    // it's time to show, which is the blank flash.
+    if (preloading.has(src)) {
+      already.add(src);
+      continue;
+    }
+
     already.add(src);
     const img = new Image();
+    preloading.set(src, img);
     img.decoding = "async";
+    img.fetchPriority = "low";
+
+    const drop = () => {
+      if (preloading.get(src) === img) preloading.delete(src);
+    };
+
+    img.onload = () => {
+      const finish = () => {
+        loadedSrcs.add(src);
+        retryAfter.delete(src);
+        drop();
+      };
+      if (typeof img.decode === "function") {
+        img.decode().then(finish, finish);
+      } else {
+        finish();
+      }
+    };
+
+    img.onerror = () => {
+      already.delete(src);
+      drop();
+      retryAfter.set(src, performance.now() + 4000);
+    };
+
     img.src = src;
   }
 }
+
+/**
+ * Download the photo for this moment and the next few, plus a smaller
+ * copy of the nearest ones. The small copy is what fades in if the full
+ * file is still coming.
+ */
+function warmPhotos(scenes: Scene[], positionMs: number, bpm: number) {
+  const current = frameAtPosition(scenes, positionMs, bpm);
+  const ahead = upcomingPhotoSrcs(scenes, positionMs, bpm, 3);
+  const full = current ? [current.photo.src, ...ahead] : ahead;
+  const quick = full
+    .slice(0, 2)
+    .map((src) => quickerUrl(src))
+    .filter((src, index) => src !== full[index]);
+  preloadAhead([...quick, ...full], preloadingStarted);
+}
+
+/**
+ * A narrower copy of a Pexels photo. large2x is about 1880 pixels wide
+ * and is often still downloading when the beat says to change pictures.
+ * Around 1280 pixels wide is enough to fill the screen while that arrives.
+ */
+function quickerUrl(src: string): string {
+  try {
+    const url = new URL(src);
+    const width = Number(url.searchParams.get("w"));
+    const dpr = Number(url.searchParams.get("dpr") || "1");
+    const pixels =
+      (Number.isFinite(width) && width > 0 ? width : 1880) *
+      (Number.isFinite(dpr) && dpr > 0 ? dpr : 1);
+    if (pixels <= 1280) return src;
+
+    url.searchParams.set("auto", "compress");
+    url.searchParams.set("cs", "tinysrgb");
+    url.searchParams.set("w", "1280");
+    url.searchParams.delete("dpr");
+    url.searchParams.delete("h");
+    return url.toString();
+  } catch {
+    return src;
+  }
+}
+
+/** True when the full photo or its smaller copy has finished decoding. */
+function photoIsReady(src: string): boolean {
+  if (loadedSrcs.has(src)) return true;
+  const quick = quickerUrl(src);
+  return quick !== src && loadedSrcs.has(quick);
+}
+
+/** True when this moment of the file is already downloaded. */
+function mediaCovers(video: HTMLVideoElement, timeSec: number): boolean {
+  if (video.readyState < 2) return false;
+  try {
+    const buffered = video.buffered;
+    for (let i = 0; i < buffered.length; i += 1) {
+      if (
+        timeSec >= buffered.start(i) - 0.05 &&
+        timeSec <= buffered.end(i) + 0.02
+      ) {
+        return true;
+      }
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+// How far a playing clip can drift before we seek. Smaller jumps are
+// the normal once-a-second twitch from Spotify, and seeking on those
+// blanks the frame.
+const PLAYING_SEEK_SEC = 1.25;
+
+// Photos that have finished decoding. Kept for the whole tab so a new
+// song doesn't throw away pictures the browser already has.
+const loadedSrcs = new Set<string>();
+// Image objects we must keep until the download finishes.
+const preloading = new Map<string, HTMLImageElement>();
+// Addresses we've already asked the browser to download.
+const preloadingStarted = new Set<string>();
+// Don't hammer a URL that just failed.
+const retryAfter = new Map<string, number>();
