@@ -178,7 +178,10 @@ export function SearchBox({
 
   return (
     <div ref={boxRef} className="w-full">
-      <label htmlFor="song-search" className="mb-2 block text-sm">
+      <label
+        htmlFor="song-search"
+        className="mb-2 block [font-size:var(--font-size-credits-caption)] [font-weight:var(--font-weight-credits-caption)] [line-height:var(--line-height-credits-caption)] [letter-spacing:var(--letter-spacing-credits-caption)] [color:var(--color-text-primary)]"
+      >
         Song or musician
       </label>
       {/* The list is positioned against this box only, so it sits
@@ -201,7 +204,7 @@ export function SearchBox({
           aria-controls="search-results"
           aria-activedescendant={showDropdown ? activeId : undefined}
           aria-autocomplete="list"
-          className="w-full rounded border border-foreground/30 bg-background px-3 py-2 text-foreground outline-none focus:border-foreground"
+          className="w-full rounded-[var(--radius-search)] bg-[var(--color-control-fill)] px-3 py-2 [font-size:var(--font-size-search)] [font-weight:var(--font-weight-search)] [line-height:var(--line-height-search)] [letter-spacing:var(--letter-spacing-search)] [color:var(--color-text-primary)] outline-none placeholder:[color:var(--color-text-secondary)]"
         />
 
         {showDropdown && (
@@ -209,20 +212,24 @@ export function SearchBox({
             id="search-results"
             role="listbox"
             aria-label="Search results"
-            className="absolute left-0 right-0 top-full z-10 mt-1 rounded border border-foreground/30 bg-background text-foreground"
+            className="absolute left-0 right-0 top-full z-10 mt-[var(--space-dropdown-gap)] rounded-[var(--radius-dropdown)] border-[length:var(--border-width)] border-solid [border-color:var(--color-border-subtle)] bg-[var(--color-surface-overlay)] [color:var(--color-text-primary)] shadow-[var(--shadow-overlay)]"
           >
           {status === "loading" && (
-            <p className="px-3 py-2 text-sm opacity-70">Searching…</p>
+            <p className="px-3 py-2 [font-size:var(--font-size-credits-caption)] [font-weight:var(--font-weight-credits-caption)] [color:var(--color-text-secondary)]">
+              Searching…
+            </p>
           )}
 
           {status === "error" && (
-            <p className="px-3 py-2 text-sm">
+            <p className="px-3 py-2 [font-size:var(--font-size-credits-caption)] [font-weight:var(--font-weight-credits-caption)] [color:var(--color-text-primary)]">
               Search isn’t available right now. Try again in a moment.
             </p>
           )}
 
           {status === "done" && items.length === 0 && (
-            <p className="px-3 py-2 text-sm">No matches.</p>
+            <p className="px-3 py-2 [font-size:var(--font-size-credits-caption)] [font-weight:var(--font-weight-credits-caption)] [color:var(--color-text-secondary)]">
+              No matches.
+            </p>
           )}
 
           {artists.length > 0 && (
@@ -235,6 +242,7 @@ export function SearchBox({
                   artworkUrl={artist.artworkUrl}
                   title={artist.name}
                   subtitle="Artist"
+                  shape="avatar"
                   onHighlight={() => setActiveIndex(index)}
                   onChoose={() => choose(artist)}
                 />
@@ -254,6 +262,7 @@ export function SearchBox({
                     artworkUrl={song.artworkUrl}
                     title={song.title}
                     subtitle={song.artistName}
+                    shape="art"
                     onHighlight={() => setActiveIndex(optionIndex)}
                     onChoose={() => choose(song)}
                   />
@@ -265,7 +274,7 @@ export function SearchBox({
         )}
       </div>
 
-      <p className="mt-2 text-sm opacity-70">
+      <p className="mt-2 [font-size:var(--font-size-credits-caption)] [font-weight:var(--font-weight-credits-caption)] [color:var(--color-text-secondary)]">
         Type at least 2 letters. Arrow keys move through the list, Enter
         chooses one.
       </p>
@@ -282,7 +291,7 @@ function ResultGroup({
 }) {
   return (
     <div>
-      <p className="px-3 pt-2 text-xs uppercase tracking-wide opacity-60">
+      <p className="px-3 pt-2 uppercase [font-size:var(--font-size-dropdown-label)] [font-weight:var(--font-weight-dropdown-label)] [line-height:var(--line-height-dropdown-label)] [letter-spacing:var(--letter-spacing-dropdown-label)] [color:var(--color-text-secondary)]">
         {label}
       </p>
       <ul>{children}</ul>
@@ -296,6 +305,7 @@ function ResultRow({
   artworkUrl,
   title,
   subtitle,
+  shape,
   onHighlight,
   onChoose,
 }: {
@@ -304,6 +314,7 @@ function ResultRow({
   artworkUrl: string | null;
   title: string;
   subtitle: string;
+  shape: "avatar" | "art";
   onHighlight: () => void;
   onChoose: () => void;
 }) {
@@ -319,7 +330,7 @@ function ResultRow({
       }}
       onMouseEnter={onHighlight}
       className={`flex cursor-pointer items-center gap-3 px-3 py-2 ${
-        active ? "bg-foreground/10" : ""
+        active ? "bg-[var(--color-hover-row)]" : ""
       }`}
     >
       {artworkUrl ? (
@@ -331,14 +342,28 @@ function ResultRow({
           alt=""
           width={40}
           height={40}
-          className="h-10 w-10 shrink-0 bg-foreground/10 object-cover"
+          className={`size-[var(--space-dropdown-avatar)] shrink-0 bg-[var(--color-placeholder)] object-cover ${
+            shape === "avatar"
+              ? "rounded-[var(--radius-avatar)]"
+              : "rounded-[var(--radius-song-art)]"
+          }`}
         />
       ) : (
-        <span className="h-10 w-10 shrink-0 bg-foreground/10" />
+        <span
+          className={`size-[var(--space-dropdown-avatar)] shrink-0 bg-[var(--color-placeholder)] ${
+            shape === "avatar"
+              ? "rounded-[var(--radius-avatar)]"
+              : "rounded-[var(--radius-song-art)]"
+          }`}
+        />
       )}
       <span className="min-w-0">
-        <span className="block truncate">{title}</span>
-        <span className="block truncate text-sm opacity-70">{subtitle}</span>
+        <span className="block truncate [font-size:var(--font-size-search-result-name)] [font-weight:var(--font-weight-search-result-name)] [color:var(--color-text-primary)]">
+          {title}
+        </span>
+        <span className="block truncate [font-size:var(--font-size-search-meta)] [font-weight:var(--font-weight-search-meta)] [color:var(--color-text-secondary)]">
+          {subtitle}
+        </span>
       </span>
     </li>
   );

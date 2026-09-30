@@ -450,24 +450,24 @@ export default function Home() {
       {darkScreen && !showNoLyricsSentence && (
         <div
           aria-hidden="true"
-          className="pointer-events-none fixed inset-0 z-[1] bg-gradient-to-b from-black/70 via-black/20 to-black/30"
+          className="pointer-events-none fixed inset-0 z-[1] bg-gradient-to-b from-[var(--color-bg-black)]/70 via-[var(--color-bg-black)]/20 to-[var(--color-bg-black)]/30"
         />
       )}
       {showNoLyricsSentence && (
         <div
           aria-hidden="true"
-          className="pointer-events-none fixed inset-0 z-[6] bg-black"
+          className="pointer-events-none fixed inset-0 z-[6] bg-[var(--color-bg-black)]"
         />
       )}
       <main
         // While credits cover the page, the search and player behind
         // them should not take clicks or keyboard focus.
         inert={showCredits ? true : undefined}
-        className={`relative z-10 mx-auto flex w-full max-w-xl flex-col px-6 py-16 ${
-          darkScreen ? "text-white" : ""
-        }`}
+        className="relative z-10 mx-auto flex w-full max-w-xl flex-col px-6 py-16 [color:var(--color-text-primary)]"
       >
-        <h1 className="mb-6 text-2xl font-semibold">Lyric Visualizer</h1>
+        <h1 className="mb-6 [font-family:var(--font-family-display)] [font-size:var(--font-size-homepage-header)] [font-weight:var(--font-weight-homepage-header)] [line-height:var(--line-height-homepage-header)] [letter-spacing:var(--letter-spacing-homepage-header)] [color:var(--color-text-primary)]">
+          Lyric Visualizer
+        </h1>
         <SearchBox onSelect={onSelect} resetKey={searchResetKey} />
         {showNoLyricsSentence && (
           <div className="mt-10 text-center">
@@ -603,10 +603,10 @@ function VisualModeToggle({
                 if (photosOnly) return;
                 onChange(option.id);
               }}
-              className={`rounded px-3 py-2 text-sm ${
+              className={`rounded-[var(--radius-toggle-option)] px-3 py-2 [font-size:var(--font-size-toggle)] [font-weight:var(--font-weight-toggle)] [line-height:var(--line-height-toggle)] [letter-spacing:var(--letter-spacing-toggle)] ${
                 selected
-                  ? "bg-white font-medium text-black"
-                  : "border border-current"
+                  ? "bg-[var(--color-selected-segment)] text-[color:var(--color-text-on-selected)]"
+                  : "border-[length:var(--border-width)] border-solid [border-color:var(--color-outline)] text-[color:var(--color-text-primary)]"
               } disabled:cursor-not-allowed disabled:opacity-40`}
             >
               {option.label}
@@ -614,7 +614,7 @@ function VisualModeToggle({
           );
         })}
       </div>
-      <p className="mt-2 text-sm opacity-80">
+      <p className="mt-2 [font-size:var(--font-size-credits-caption)] [font-weight:var(--font-weight-credits-caption)] [color:var(--color-text-secondary)]">
         {photosOnly
           ? "No lyrics for this song, so only photos play."
           : shown === "mix"
@@ -658,10 +658,10 @@ function ColorModeToggle({
               type="button"
               aria-pressed={selected}
               onClick={() => onChange(option.id)}
-              className={`rounded px-3 py-2 text-sm ${
+              className={`rounded-[var(--radius-toggle-option)] px-3 py-2 [font-size:var(--font-size-toggle)] [font-weight:var(--font-weight-toggle)] [line-height:var(--line-height-toggle)] [letter-spacing:var(--letter-spacing-toggle)] ${
                 selected
-                  ? "bg-white font-medium text-black"
-                  : "border border-current"
+                  ? "bg-[var(--color-selected-segment)] text-[color:var(--color-text-on-selected)]"
+                  : "border-[length:var(--border-width)] border-solid [border-color:var(--color-outline)] text-[color:var(--color-text-primary)]"
               }`}
             >
               {option.label}
@@ -669,7 +669,7 @@ function ColorModeToggle({
           );
         })}
       </div>
-      <p className="mt-2 text-sm opacity-80">
+      <p className="mt-2 [font-size:var(--font-size-credits-caption)] [font-weight:var(--font-weight-credits-caption)] [color:var(--color-text-secondary)]">
         {mode === "color"
           ? "Photos and clips in color."
           : "Photos and clips in black and white."}

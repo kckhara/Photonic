@@ -784,14 +784,14 @@ export function Visualizer({
   // Pexels sends an average color. Show it while the file is still arriving
   // so the screen doesn't flash white.
   const placeholder =
-    slides[slides.length - 1]?.photo.avgColor || "#111111";
+    slides[slides.length - 1]?.photo.avgColor || "var(--color-bg-photo-fallback)";
 
   return (
     <div
       className={`pointer-events-none fixed inset-0 z-0 overflow-hidden${
         colorMode === "bw" ? " grayscale" : ""
       }`}
-      style={{ backgroundColor: holdPhotos ? "#000000" : placeholder }}
+      style={{ backgroundColor: holdPhotos ? "var(--color-bg-black)" : placeholder }}
       aria-hidden="true"
     >
       {showTitle && <TitleCard song={song} />}
@@ -895,12 +895,16 @@ function TitleCard({ song }: { song: SongPackage }) {
           style={{ filter: "blur(28px)" }}
         />
       ) : (
-        <div className="absolute inset-0 bg-black" />
+        <div className="absolute inset-0 bg-[var(--color-bg-black)]" />
       )}
-      <div className="absolute inset-0 bg-black/45" />
-      <div className="absolute inset-0 flex flex-col items-center justify-center px-8 text-center text-white">
-        <p className="text-4xl font-semibold tracking-tight">{song.title}</p>
-        <p className="mt-3 text-xl">{song.artist}</p>
+      <div className="absolute inset-0 bg-[var(--color-bg-black)]/45" />
+      <div className="absolute inset-0 flex flex-col items-center justify-center px-8 text-center">
+        <p className="[font-size:var(--font-size-credits-song)] [font-weight:var(--font-weight-credits-song)] [line-height:var(--line-height-credits-song)] [letter-spacing:var(--letter-spacing-credits-song)] [color:var(--color-text-heading)]">
+          {song.title}
+        </p>
+        <p className="mt-3 [font-size:var(--font-size-credits-musician)] [font-weight:var(--font-weight-credits-musician)] [line-height:var(--line-height-credits-musician)] [color:var(--color-text-secondary)]">
+          {song.artist}
+        </p>
       </div>
     </div>
   );

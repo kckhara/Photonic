@@ -1,0 +1,273 @@
+/* Design tokens from design-spec.md (direction C). */
+
+:root {
+  /* Color */
+  --color-bg-photo-fallback: #0e0d10;
+  --color-bg-surface: #141218;
+  --color-bg-black: #000000;
+  --color-control-fill: rgba(54, 52, 59, 0.72);
+  --color-control-fill-hover: rgba(74, 72, 80, 0.85);
+  --color-selected-segment: rgba(255, 255, 255, 0.5);
+  --color-surface-overlay: #2b2930;
+  --color-modal-scrim: rgba(10, 9, 12, 0.72);
+  --color-prompt-surface: rgba(20, 18, 24, 0.86);
+  --color-credits-tile: #1c1b1f;
+  --color-placeholder: #49454f;
+  --color-text-primary: #e6e0e9;
+  --color-text-heading: #ffffff;
+  --color-text-secondary: #cac4d0;
+  --color-text-on-selected: #1d1b20;
+  --color-outline: #938f99;
+  --color-divider: #49454f;
+  --color-border-subtle: rgba(255, 255, 255, 0.08);
+  --color-border-prompt: rgba(255, 255, 255, 0.14);
+  --color-button-filled: #ffffff;
+  --color-button-filled-hover: #eae6ee;
+  --color-link: #d0bcff;
+  --color-link-hover: #eaddff;
+  --color-hover-row: rgba(230, 224, 233, 0.08);
+  --color-hover-outlined: rgba(230, 224, 233, 0.1);
+  --color-hover-icon: rgba(230, 224, 233, 0.12);
+  --color-focus-ring: #ffffff;
+
+  /* Font families. Faces are loaded in the root layout. */
+  --font-family-ui: var(--font-roboto-flex), sans-serif;
+  --font-family-display: var(--font-instrument-serif), serif;
+
+  /* Credits — song title */
+  --font-size-credits-song: 48px;
+  --font-weight-credits-song: 600;
+  --line-height-credits-song: 1.15;
+  --letter-spacing-credits-song: -0.01em;
+
+  /* Homepage header */
+  --font-size-homepage-header: 48px;
+  --font-weight-homepage-header: 400;
+  --line-height-homepage-header: 1.02;
+  --letter-spacing-homepage-header: -0.015em;
+
+  /* About title */
+  --font-size-about-title: 40px;
+  --font-weight-about-title: 400;
+  --line-height-about-title: 1.05;
+  --letter-spacing-about-title: -0.01em;
+
+  /* No-lyrics message */
+  --font-size-no-lyrics: 24px;
+  --font-weight-no-lyrics: 300;
+  --line-height-no-lyrics: 1.35;
+  --letter-spacing-no-lyrics: 0.005em;
+
+  /* Credits — section heading */
+  --font-size-credits-heading: 24px;
+  --font-weight-credits-heading: 600;
+  --line-height-credits-heading: normal;
+  --letter-spacing-credits-heading: 0;
+
+  /* Credits — musician */
+  --font-size-credits-musician: 22px;
+  --font-weight-credits-musician: 400;
+  --line-height-credits-musician: normal;
+  --letter-spacing-credits-musician: 0;
+
+  /* Prompt title */
+  --font-size-prompt-title: 20px;
+  --font-weight-prompt-title: 600;
+  --line-height-prompt-title: normal;
+  --letter-spacing-prompt-title: 0.005em;
+
+  /* Homepage intro text */
+  --font-size-homepage-intro: 19px;
+  --font-weight-homepage-intro: 300;
+  --line-height-homepage-intro: 1.65;
+  --letter-spacing-homepage-intro: 0.005em;
+
+  /* Loading message */
+  --font-size-loading: 18px;
+  --font-weight-loading: 400;
+  --line-height-loading: 1.4;
+  --letter-spacing-loading: 0;
+
+  /* Search input and placeholder */
+  --font-size-search: 16px;
+  --font-weight-search: 400;
+  --line-height-search: normal;
+  --letter-spacing-search: 0.01em;
+
+  /* Prompt body */
+  --font-size-prompt-body: 16px;
+  --font-weight-prompt-body: 400;
+  --line-height-prompt-body: 1.5;
+  --letter-spacing-prompt-body: 0;
+
+  /* About body */
+  --font-size-about-body: 16px;
+  --font-weight-about-body: 400;
+  --line-height-about-body: 1.6;
+  --letter-spacing-about-body: 0;
+
+  /* About "Contact me" link */
+  --font-size-about-link: 16px;
+  --font-weight-about-link: 500;
+  --line-height-about-link: normal;
+  --letter-spacing-about-link: 0;
+
+  /* Search result name */
+  --font-size-search-result-name: 16px;
+  --font-weight-search-result-name: 400;
+  --line-height-search-result-name: normal;
+  --letter-spacing-search-result-name: 0;
+
+  /* Credits links */
+  --font-size-credits-link: 16px;
+  --font-weight-credits-link: 400;
+  --line-height-credits-link: normal;
+  --letter-spacing-credits-link: 0;
+
+  /* Toggle labels */
+  --font-size-toggle: 15px;
+  --font-weight-toggle: 400;
+  --line-height-toggle: normal;
+  --letter-spacing-toggle: 0.01em;
+
+  /* Dropdown section label */
+  --font-size-dropdown-label: 14px;
+  --font-weight-dropdown-label: 600;
+  --line-height-dropdown-label: normal;
+  --letter-spacing-dropdown-label: 0.02em;
+
+  /* Button label — filled */
+  --font-size-button-filled: 14px;
+  --font-weight-button-filled: 600;
+  --line-height-button-filled: normal;
+  --letter-spacing-button-filled: 0.01em;
+
+  /* Button label — outlined */
+  --font-size-button-outlined: 14px;
+  --font-weight-button-outlined: 500;
+  --line-height-button-outlined: normal;
+  --letter-spacing-button-outlined: 0.01em;
+
+  /* Credits caption */
+  --font-size-credits-caption: 14px;
+  --font-weight-credits-caption: 400;
+  --line-height-credits-caption: normal;
+  --letter-spacing-credits-caption: 0;
+
+  /* Search result meta, song length */
+  --font-size-search-meta: 13px;
+  --font-weight-search-meta: 400;
+  --line-height-search-meta: normal;
+  --letter-spacing-search-meta: 0;
+
+  /* Spacing and layout measurements */
+  --space-column-width: 568px;
+  --space-column-top: 52px;
+  --space-column-x: 435px;
+  --space-stack-gap: 12px;
+  --space-dropdown-gap: 4px;
+  --space-search-height: 56px;
+  --space-search-padding-right: 16px;
+  --space-search-padding-left: 4px;
+  --space-search-icon-slot: 48px;
+  --space-search-icon-gap: 4px;
+  --space-toggle-gap: 12px;
+  --space-media-toggle-width: 328px;
+  --space-color-toggle-width: 228px;
+  --space-toggle-height: 40px;
+  --space-toggle-padding: 4px;
+  --space-toggle-option-gap: 4px;
+  --space-toggle-option-height: 32px;
+  --space-toggle-option-padding-x: 10px;
+  --space-toggle-check-gap: 6px;
+  --space-spotify-height: 80px;
+  --space-spotify-width: 568px;
+  --space-about-button: 56px;
+  --space-about-button-right: 40px;
+  --space-about-button-top: 52px;
+  --space-about-icon: 24px;
+  --space-about-modal-width: 560px;
+  --space-about-modal-padding-top: 40px;
+  --space-about-modal-padding-x: 40px;
+  --space-about-modal-padding-bottom: 36px;
+  --space-about-modal-stack: 20px;
+  --space-about-modal-paragraph: 14px;
+  --space-about-close: 48px;
+  --space-about-close-offset: 16px;
+  --space-about-contact-icon: 10px;
+  --space-dropdown-padding-top: 8px;
+  --space-dropdown-padding-bottom: 12px;
+  --space-dropdown-label-padding-top: 12px;
+  --space-dropdown-label-padding-x: 20px;
+  --space-dropdown-label-padding-bottom: 6px;
+  --space-dropdown-row-height: 56px;
+  --space-dropdown-row-padding-x: 20px;
+  --space-dropdown-avatar-gap: 16px;
+  --space-dropdown-avatar: 40px;
+  --space-dropdown-divider-inset: 20px;
+  --space-dropdown-divider-y: 8px;
+  --space-prompt-width: 568px;
+  --space-prompt-bottom: 40px;
+  --space-prompt-padding: 24px;
+  --space-prompt-stack: 12px;
+  --space-prompt-buttons-extra: 8px;
+  --space-prompt-button-gap: 12px;
+  --space-prompt-button-height: 40px;
+  --space-prompt-button-padding-x: 24px;
+  --space-homepage-header-gap: 16px;
+  --space-homepage-header-width: 388px;
+  --space-homepage-text-max: 600px;
+  --space-spinner: 48px;
+  --space-spinner-gap: 20px;
+  --space-no-lyrics-margin-x: 240px;
+  --space-no-lyrics-max: 960px;
+  --space-credits-title-top: 72px;
+  --space-credits-padding-bottom: 96px;
+  --space-credits-padding-x: 200px;
+  --space-credits-content: 1040px;
+  --space-credits-title-gap: 8px;
+  --space-credits-section-top: 72px;
+  --space-credits-section-bottom: 24px;
+  --space-credits-built-with-bottom: 20px;
+  --space-credits-grid-column: 24px;
+  --space-credits-grid-row: 28px;
+  --space-credits-caption-gap: 10px;
+  --space-credits-photo-height: 161px;
+  --space-credits-video-height: 136px;
+  --space-credits-link-gap: 14px;
+  --space-icon: 24px;
+  --space-icon-stroke: 2px;
+  --space-icon-stroke-fine: 1.8px;
+  --space-checkmark: 18px;
+  --space-underline-offset: 4px;
+  --space-motion-slide: 24px;
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+  --border-width: 1px;
+
+  /* Corner radius */
+  --radius-search: 28px;
+  --radius-about-button: 28px;
+  --radius-dropdown: 28px;
+  --radius-about-modal: 28px;
+  --radius-prompt: 28px;
+  --radius-toggle-bar: 20px;
+  --radius-toggle-option: 16px;
+  --radius-prompt-button: 20px;
+  --radius-icon-button: 24px;
+  --radius-tile: 12px;
+  --radius-spotify: 12px;
+  --radius-song-art: 6px;
+  --radius-avatar: 20px;
+
+  /* Blur and shadow. Search, toggles, and the About button use none. */
+  --blur-prompt: 24px;
+  --shadow-overlay: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+/* Spec focus ring: white, 2px, 2px offset. :where keeps specificity at 0
+   so a component can still override it. */
+:where(a, button, input, textarea, select, summary):focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}

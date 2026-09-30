@@ -168,28 +168,42 @@ export function PlayerBar({
 
   return (
     <section className="mt-6 space-y-3" aria-label="Player">
-      <p className="font-medium">{heading}</p>
+      <p className="[font-size:var(--font-size-search)] [font-weight:var(--font-weight-button-outlined)] [color:var(--color-text-primary)]">
+        {heading}
+      </p>
 
       {status === "loading" && (
-        <p className="text-sm opacity-70" role="status">
+        <p
+          className="[font-size:var(--font-size-loading)] [font-weight:var(--font-weight-loading)] [line-height:var(--line-height-loading)] [letter-spacing:var(--letter-spacing-loading)] [color:var(--color-text-secondary)]"
+          role="status"
+        >
           {message}
         </p>
       )}
 
       {status === "error" && (
-        <p className="text-sm" role="status">
+        <p
+          className="[font-size:var(--font-size-loading)] [font-weight:var(--font-weight-loading)] [line-height:var(--line-height-loading)] [color:var(--color-text-secondary)]"
+          role="status"
+        >
           {message}
         </p>
       )}
 
       {status === "ready" && song && !hasPhotos(song) && (
-        <p className="text-sm" role="status">
+        <p
+          className="[font-size:var(--font-size-loading)] [font-weight:var(--font-weight-loading)] [line-height:var(--line-height-loading)] [color:var(--color-text-secondary)]"
+          role="status"
+        >
           We couldn’t load photos for this song. Please try again.
         </p>
       )}
 
       {status === "ready" && song && !song.spotifyId && (
-        <p className="text-sm" role="status">
+        <p
+          className="[font-size:var(--font-size-loading)] [font-weight:var(--font-weight-loading)] [line-height:var(--line-height-loading)] [color:var(--color-text-secondary)]"
+          role="status"
+        >
           {song.spotifyLookup === "failed"
             ? "We couldn’t reach Spotify just now. Please try this song again."
             : "This song isn’t on Spotify, so it can’t play here. Try another one."}
@@ -471,7 +485,7 @@ function SpotifyPlayer({
           type="button"
           onClick={onPlayPause}
           disabled={!playerReady}
-          className="rounded bg-foreground px-3 py-2 text-sm text-background disabled:opacity-40"
+          className="rounded-[var(--radius-prompt-button)] bg-[var(--color-button-filled)] px-3 py-2 [font-size:var(--font-size-button-filled)] [font-weight:var(--font-weight-button-filled)] [line-height:var(--line-height-button-filled)] [letter-spacing:var(--letter-spacing-button-filled)] text-[color:var(--color-text-on-selected)] hover:bg-[var(--color-button-filled-hover)] disabled:opacity-40"
         >
           {isPlaying ? "Pause" : "Play"}
         </button>
@@ -479,7 +493,7 @@ function SpotifyPlayer({
           type="button"
           onClick={() => onSeek(-10)}
           disabled={!playerReady}
-          className="rounded border border-foreground/30 px-3 py-2 text-sm disabled:opacity-40"
+          className="rounded-[var(--radius-prompt-button)] border-[length:var(--border-width)] border-solid [border-color:var(--color-outline)] bg-transparent px-3 py-2 [font-size:var(--font-size-button-outlined)] [font-weight:var(--font-weight-button-outlined)] [line-height:var(--line-height-button-outlined)] [letter-spacing:var(--letter-spacing-button-outlined)] text-[color:var(--color-text-primary)] hover:bg-[var(--color-hover-outlined)] disabled:opacity-40"
         >
           −10s
         </button>
@@ -487,7 +501,7 @@ function SpotifyPlayer({
           type="button"
           onClick={() => onSeek(10)}
           disabled={!playerReady}
-          className="rounded border border-foreground/30 px-3 py-2 text-sm disabled:opacity-40"
+          className="rounded-[var(--radius-prompt-button)] border-[length:var(--border-width)] border-solid [border-color:var(--color-outline)] bg-transparent px-3 py-2 [font-size:var(--font-size-button-outlined)] [font-weight:var(--font-weight-button-outlined)] [line-height:var(--line-height-button-outlined)] [letter-spacing:var(--letter-spacing-button-outlined)] text-[color:var(--color-text-primary)] hover:bg-[var(--color-hover-outlined)] disabled:opacity-40"
         >
           +10s
         </button>
@@ -495,14 +509,14 @@ function SpotifyPlayer({
           <button
             type="button"
             onClick={onShowLoginPrompt}
-            className="px-1 py-2 text-sm underline underline-offset-2"
+            className="px-1 py-2 underline underline-offset-[var(--space-underline-offset)] [font-size:var(--font-size-credits-link)] [font-weight:var(--font-weight-credits-link)] [color:var(--color-link)] hover:[color:var(--color-link-hover)]"
           >
             Log in for full songs
           </button>
         )}
       </div>
 
-      <p className="text-sm opacity-70">
+      <p className="[font-size:var(--font-size-credits-caption)] [font-weight:var(--font-weight-credits-caption)] [color:var(--color-text-secondary)]">
         If the music doesn’t start, press Play. Some browsers wait for that
         extra click.
       </p>

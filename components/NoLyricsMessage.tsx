@@ -11,7 +11,10 @@ const MESSAGE = "We couldn't find any lyrics, lets see what happens...";
 
 export function NoLyricsMessage() {
   return (
-    <p className="text-2xl font-medium leading-snug text-white" role="status">
+    <p
+      className="[font-size:var(--font-size-no-lyrics)] [font-weight:var(--font-weight-no-lyrics)] [line-height:var(--line-height-no-lyrics)] [letter-spacing:var(--letter-spacing-no-lyrics)] [color:var(--color-text-secondary)]"
+      role="status"
+    >
       {MESSAGE}
     </p>
   );

@@ -35,7 +35,7 @@ export function SpotifyLoginPrompt({
   return (
     <section
       aria-label="Spotify login"
-      className="max-w-md rounded-lg border border-white/20 bg-black/80 p-4 text-white"
+      className="max-w-md rounded-[var(--radius-prompt)] border-[length:var(--border-width)] border-solid [border-color:var(--color-border-prompt)] bg-[var(--color-prompt-surface)] p-4 [color:var(--color-text-primary)] shadow-[var(--shadow-overlay)] [backdrop-filter:blur(var(--blur-prompt))]"
     >
       {step === "reload" ? (
         <ReloadStep onReload={onReload} onMaybeLater={onMaybeLater} />
@@ -61,8 +61,10 @@ function InviteStep({
 }) {
   return (
     <div className="space-y-3">
-      <h2 className="text-base font-semibold">Hearing a 30-second preview?</h2>
-      <p className="text-sm leading-relaxed">
+      <h2 className="[font-size:var(--font-size-prompt-title)] [font-weight:var(--font-weight-prompt-title)] [line-height:var(--line-height-prompt-title)] [letter-spacing:var(--letter-spacing-prompt-title)] [color:var(--color-text-heading)]">
+        Hearing a 30-second preview?
+      </h2>
+      <p className="[font-size:var(--font-size-prompt-body)] [font-weight:var(--font-weight-prompt-body)] [line-height:var(--line-height-prompt-body)] [letter-spacing:var(--letter-spacing-prompt-body)] [color:var(--color-text-primary)]">
         For the full experience, log in to Spotify Premium in this browser to
         hear full songs.
       </p>
@@ -83,7 +85,9 @@ function ReloadStep({
 }) {
   return (
     <div className="space-y-3">
-      <p className="text-sm leading-relaxed">Logged in?</p>
+      <p className="[font-size:var(--font-size-prompt-body)] [font-weight:var(--font-weight-prompt-body)] [line-height:var(--line-height-prompt-body)] [color:var(--color-text-primary)]">
+        Logged in?
+      </p>
       <div className="flex flex-wrap gap-2">
         <PrimaryButton onClick={onReload}>Reload player</PrimaryButton>
         <SecondaryButton onClick={onMaybeLater}>Maybe later</SecondaryButton>
@@ -103,7 +107,7 @@ function EndedStep({
 }) {
   return (
     <div className="space-y-3">
-      <h2 className="text-base font-semibold">
+      <h2 className="[font-size:var(--font-size-prompt-title)] [font-weight:var(--font-weight-prompt-title)] [line-height:var(--line-height-prompt-title)] [letter-spacing:var(--letter-spacing-prompt-title)] [color:var(--color-text-heading)]">
         That was the preview — for the full experience, log in to hear the
         whole song.
       </h2>
@@ -124,7 +128,7 @@ function LoginLink({ onLogin }: { onLogin: () => void }) {
       target="_blank"
       rel="noopener noreferrer"
       onClick={onLogin}
-      className="inline-block rounded bg-white px-3 py-2 text-sm font-medium text-black"
+      className="inline-block rounded-[var(--radius-prompt-button)] bg-[var(--color-button-filled)] px-3 py-2 [font-size:var(--font-size-button-filled)] [font-weight:var(--font-weight-button-filled)] [line-height:var(--line-height-button-filled)] [letter-spacing:var(--letter-spacing-button-filled)] text-[color:var(--color-text-on-selected)] hover:bg-[var(--color-button-filled-hover)]"
     >
       Log in to Spotify
     </a>
@@ -142,7 +146,7 @@ function PrimaryButton({
     <button
       type="button"
       onClick={onClick}
-      className="rounded bg-white px-3 py-2 text-sm font-medium text-black"
+      className="rounded-[var(--radius-prompt-button)] bg-[var(--color-button-filled)] px-3 py-2 [font-size:var(--font-size-button-filled)] [font-weight:var(--font-weight-button-filled)] [line-height:var(--line-height-button-filled)] [letter-spacing:var(--letter-spacing-button-filled)] text-[color:var(--color-text-on-selected)] hover:bg-[var(--color-button-filled-hover)]"
     >
       {children}
     </button>
@@ -160,7 +164,7 @@ function SecondaryButton({
     <button
       type="button"
       onClick={onClick}
-      className="rounded border border-white/40 px-3 py-2 text-sm"
+      className="rounded-[var(--radius-prompt-button)] border-[length:var(--border-width)] border-solid [border-color:var(--color-outline)] bg-transparent px-3 py-2 [font-size:var(--font-size-button-outlined)] [font-weight:var(--font-weight-button-outlined)] [line-height:var(--line-height-button-outlined)] [letter-spacing:var(--letter-spacing-button-outlined)] text-[color:var(--color-text-primary)] hover:bg-[var(--color-hover-outlined)]"
     >
       {children}
     </button>
