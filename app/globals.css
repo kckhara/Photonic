@@ -40,14 +40,6 @@ body {
   pointer-events: none;
 }
 
-.is-controls-idle .home-search-slot {
-  opacity: 0;
-  transform: translateY(calc(-1 * var(--space-motion-slide)));
-  transition:
-    opacity var(--motion-fade-out) var(--ease-control),
-    transform var(--motion-collapse) var(--ease-control);
-}
-
 .home-search-slot > * {
   pointer-events: auto;
   width: min(
@@ -55,6 +47,137 @@ body {
     calc(
       100% - 2 * (var(--space-about-button) + var(--space-about-button-right))
     )
+  );
+}
+
+/* After a song is chosen, search stays put until the player exists.
+   The player then opens at the top and search and the filters move
+   down with it. Idle slides those controls up behind the player. */
+.home-controls.has-player {
+  pointer-events: none;
+  position: fixed;
+  z-index: 20;
+  top: var(--space-column-top);
+  right: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.home-controls.has-player .home-player,
+.home-controls.has-player .home-controls-lower {
+  width: min(
+    var(--space-column-width),
+    calc(
+      100% - 2 * (var(--space-about-button) + var(--space-about-button-right))
+    )
+  );
+}
+
+.home-player {
+  position: relative;
+  z-index: 3;
+  display: grid;
+  grid-template-rows: 0fr;
+  pointer-events: none;
+  transition: grid-template-rows var(--motion-expand) var(--ease-control);
+}
+
+.home-player.is-in {
+  grid-template-rows: 1fr;
+  pointer-events: auto;
+}
+
+.home-player-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.home-player .spotify-slot {
+  margin-bottom: var(--space-stack-gap);
+  transform: translateY(-100%);
+  transition: transform var(--motion-expand) var(--ease-control);
+}
+
+.home-player.is-in .spotify-slot {
+  transform: none;
+}
+
+.spotify-hint-slot {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--motion-expand) var(--ease-control);
+}
+
+.spotify-hint-slot.is-in {
+  grid-template-rows: 1fr;
+}
+
+.spotify-hint-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.spotify-hint-clip .spotify-login-hint {
+  margin-bottom: var(--space-stack-gap);
+}
+
+/* Hold the gap while the next song's embed is still loading. */
+.home-player.is-in:not(:has(.spotify-embed)) .spotify-slot {
+  min-height: var(--space-spotify-height);
+}
+
+.home-controls-lower {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition:
+    opacity var(--motion-expand) var(--ease-control),
+    transform var(--motion-expand) var(--ease-control);
+}
+
+.is-controls-idle .home-controls-lower {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(
+    calc(
+      -1 * (
+        var(--space-search-height) + var(--space-toggle-height) +
+          2 * var(--space-stack-gap)
+      )
+    )
+  );
+  transition:
+    opacity var(--motion-collapse) var(--ease-control),
+    transform var(--motion-collapse) var(--ease-control);
+}
+
+.home-controls.has-player .home-search-slot,
+.home-controls.has-player .toggle-slot {
+  width: 100%;
+}
+
+.home-controls.has-player .home-search-slot {
+  position: relative;
+  z-index: 2;
+  top: auto;
+  right: auto;
+  left: auto;
+  padding: 0;
+}
+
+.home-controls.has-player .home-search-slot > * {
+  width: 100%;
+}
+
+.home-controls.has-player .search-results {
+  max-height: calc(
+    100vh - var(--space-column-top) - var(--space-spotify-height) -
+      var(--space-stack-gap) - var(--space-search-height) -
+      var(--space-dropdown-gap) - var(--space-about-button-top)
   );
 }
 
@@ -416,35 +539,10 @@ body {
   color: var(--color-text-secondary);
 }
 
-.home-player-column {
-  pointer-events: none;
-  position: fixed;
-  z-index: 10;
-  top: calc(
-    var(--space-column-top) + var(--space-search-height) + var(--space-stack-gap)
-  );
-  right: 0;
-  left: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0;
-  color: var(--color-text-primary);
-  transition: top var(--motion-expand) var(--ease-control);
-}
-
-.is-controls-idle .home-player-column {
-  top: var(--space-column-top);
-  transition: top var(--motion-collapse) var(--ease-control);
-}
-
 .toggle-slot {
+  pointer-events: auto;
   display: grid;
   grid-template-rows: 1fr;
-  transition:
-    grid-template-rows var(--motion-expand) var(--ease-control),
-    opacity var(--motion-fade-in) var(--ease-control) var(--motion-fade-in-delay),
-    transform var(--motion-expand) var(--ease-control);
 }
 
 .toggle-slot-clip {
@@ -453,28 +551,11 @@ body {
 }
 
 .toggle-slot-clip .toggle-row {
-  margin-bottom: var(--space-stack-gap);
+  margin-top: var(--space-stack-gap);
 }
 
 .is-controls-idle .toggle-slot {
-  grid-template-rows: 0fr;
-  opacity: 0;
   pointer-events: none;
-  transform: translateY(calc(-1 * var(--space-motion-slide)));
-  transition:
-    grid-template-rows var(--motion-collapse) var(--ease-control),
-    opacity var(--motion-fade-out) var(--ease-control),
-    transform var(--motion-collapse) var(--ease-control);
-}
-
-.home-player-column > * {
-  pointer-events: auto;
-  width: min(
-    var(--space-column-width),
-    calc(
-      100% - 2 * (var(--space-about-button) + var(--space-about-button-right))
-    )
-  );
 }
 
 .toggle-row {
@@ -636,7 +717,7 @@ body {
     width: 100%;
   }
 
-  .home-player-column {
+  .home-controls.has-player {
     align-items: stretch;
     padding-left: var(--space-search-padding-right);
     padding-right: calc(
@@ -645,7 +726,10 @@ body {
     );
   }
 
-  .home-player-column > * {
+  .home-controls.has-player .home-player,
+  .home-controls.has-player .home-controls-lower,
+  .home-controls.has-player .home-search-slot,
+  .home-controls.has-player .toggle-slot {
     width: 100%;
   }
 
@@ -690,7 +774,10 @@ body {
   }
 
   .home-search-slot,
-  .home-player-column,
+  .home-player,
+  .home-player .spotify-slot,
+  .spotify-hint-slot,
+  .home-controls-lower,
   .toggle-slot {
     transition: none;
   }

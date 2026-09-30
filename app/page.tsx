@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { AboutButton } from "@/components/AboutButton";
 import { Credits } from "@/components/Credits";
 import { NoLyricsMessage, NO_LYRICS_INTRO_MS } from "@/components/NoLyricsMessage";
@@ -25,10 +25,12 @@ import type {
 
 /**
  * Homepage. A first visit shows the search bar, the About button, and a
- * centered introduction. After a song is chosen, the media filters and
- * the Spotify player sit under the search, and photos fill the screen.
- * If nothing moves for a few seconds, the search and filters fade out
- * and the player rises to the top. Any movement brings them back.
+ * centered introduction. After a song is chosen, search stays where it
+ * is until the Spotify player appears. The player then moves in at the
+ * top, and search and the media filters move down with it. Photos fill
+ * the screen. If nothing moves for a few seconds, search and the filters
+ * slide up behind the player and fade. The player stays where it is.
+ * Any movement brings search and the filters back.
  * This file runs in the browser because it has to remember the chosen song.
  *
  * If Spotify is only playing a 30-second preview, a line under the
@@ -94,6 +96,14 @@ export default function Home() {
   const [colorMode, setColorMode] = useState<ColorMode>("bw");
   const [searchOpen, setSearchOpen] = useState(false);
   const [controlsIdle, setControlsIdle] = useState(false);
+  const controlsIdleRef = useRef(false);
+  controlsIdleRef.current = controlsIdle;
+  // Stays open after the first embed so a later song doesn't snap search
+  // back up while the next player loads.
+  const [playerIn, setPlayerIn] = useState(false);
+  const onPlayerVisible = useCallback((visible: boolean) => {
+    if (visible) setPlayerIn(true);
+  }, []);
 
   useEffect(() => {
     songRef.current = song;
@@ -138,9 +148,10 @@ export default function Home() {
   }, []);
 
   // Hide the search and filters after a still moment, then bring them
-  // back when the pointer, keyboard, or wheel moves.
+  // back when the pointer, keyboard, or wheel moves. Wait until the
+  // player has moved in, so search doesn't slide away while it loads.
   useEffect(() => {
-    if (!pick || searchOpen) return;
+    if (!pick || !playerIn || searchOpen) return;
 
     let idle = false;
     let suppressUntil = 0;
@@ -148,7 +159,7 @@ export default function Home() {
 
     function goIdle() {
       idle = true;
-      // Ignore the pointer events the moving player can fire on its own.
+      // Ignore pointer events the fading controls can fire on their own.
       suppressUntil = performance.now() + 403;
       setControlsIdle(true);
     }
@@ -164,7 +175,7 @@ export default function Home() {
         return;
       }
       window.clearTimeout(timer);
-      if (idle) {
+      if (idle || controlsIdleRef.current) {
         idle = false;
         setControlsIdle(false);
       }
@@ -180,7 +191,7 @@ export default function Home() {
       window.clearTimeout(timer);
       for (const name of events) window.removeEventListener(name, wake);
     };
-  }, [pick, searchOpen]);
+  }, [pick, playerIn, searchOpen]);
 
   function enterPreview() {
     previewModeRef.current = true;
@@ -363,6 +374,7 @@ export default function Home() {
     setShowNoLyricsSentence(false);
     closeCredits();
     setPick(null);
+    setPlayerIn(false);
     setSong(null);
     setPlayback(null);
     resetPreviewState();
@@ -415,20 +427,38 @@ export default function Home() {
       )}
       {/* While credits cover the page, the search and player behind
           them should not take clicks or keyboard focus. */}
-      <div inert={showCredits ? true : undefined}>
-        <div
-          className="home-search-slot"
-          inert={pick && controlsIdle ? true : undefined}
-        >
-          <SearchBox
-            onSelect={onSelect}
-            resetKey={searchResetKey}
-            onOpenChange={onSearchOpenChange}
-          />
-        </div>
-        {!pick && !searchOpen && <HomeIntro />}
+      <div
+        className={pick ? "home-controls has-player" : undefined}
+        inert={showCredits ? true : undefined}
+      >
         {pick && (
-          <main className="home-player-column">
+          <main className={`home-player${playerIn ? " is-in" : ""}`}>
+            <div className="home-player-clip">
+              <PlayerBar
+                key={pick.pickId}
+                selection={pick.hit}
+                onSong={onSong}
+                onPlayback={onPlayback}
+                previewMode={previewMode}
+                playerCommand={playerCommand}
+                onVisibleChange={onPlayerVisible}
+              />
+            </div>
+          </main>
+        )}
+        <div className={pick ? "home-controls-lower" : undefined}>
+          <div
+            className="home-search-slot"
+            inert={pick && controlsIdle ? true : undefined}
+          >
+            <SearchBox
+              onSelect={onSelect}
+              resetKey={searchResetKey}
+              onOpenChange={onSearchOpenChange}
+            />
+          </div>
+          {!pick && !searchOpen && <HomeIntro />}
+          {pick && (
             <div className="toggle-slot">
               <div className="toggle-slot-clip">
                 <div className="toggle-row">
@@ -441,16 +471,8 @@ export default function Home() {
                 </div>
               </div>
             </div>
-            <PlayerBar
-              key={pick.pickId}
-              selection={pick.hit}
-              onSong={onSong}
-              onPlayback={onPlayback}
-              previewMode={previewMode}
-              playerCommand={playerCommand}
-            />
-          </main>
-        )}
+          )}
+        </div>
       </div>
       {showCredits && song && (
         <Credits

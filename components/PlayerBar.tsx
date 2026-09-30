@@ -57,7 +57,7 @@ export type PlayerCommand =
   | { kind: "restart"; nonce: number };
 
 /**
- * Sits under the search box after a song or musician is chosen.
+ * Sits at the top of the page after a song or musician is chosen.
  * Loads that song from our server, then plays it on Spotify.
  * Tells the page when the song package arrives, and where playback is,
  * so the photos can follow along.
@@ -68,6 +68,7 @@ export function PlayerBar({
   onPlayback,
   previewMode = false,
   playerCommand = null,
+  onVisibleChange,
 }: {
   selection: SearchHit;
   onSong: (song: SongPackage | null) => void;
@@ -76,14 +77,18 @@ export function PlayerBar({
   previewMode?: boolean;
   // Reload the embed, or send the preview back to the start.
   playerCommand?: PlayerCommand | null;
+  // True once the Spotify embed is on the page.
+  onVisibleChange?: (visible: boolean) => void;
 }) {
   // Kept in refs so a new render doesn't restart the song load.
   const onSongRef = useRef(onSong);
   const onPlaybackRef = useRef(onPlayback);
+  const onVisibleChangeRef = useRef(onVisibleChange);
 
   useEffect(() => {
     onSongRef.current = onSong;
     onPlaybackRef.current = onPlayback;
+    onVisibleChangeRef.current = onVisibleChange;
   });
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [song, setSong] = useState<SongPackage | null>(null);
@@ -157,22 +162,28 @@ export function PlayerBar({
     };
   }, [selection]);
 
+  const playerVisible = status === "ready" && Boolean(song?.spotifyId);
+
+  useEffect(() => {
+    onVisibleChangeRef.current?.(playerVisible);
+  }, [playerVisible]);
+
   const notices = screenNotices(status, message, song);
 
   return (
-    <section className="spotify-slot" aria-label="Player">
-      {notices.length > 0 && (
-        <div className="pointer-events-none fixed inset-0 z-[8] flex flex-col items-center justify-center gap-3 px-8 text-center">
-          {notices.map((text) => (
-            <p key={text} className="screen-status" role="status">
-              {text}
-            </p>
-          ))}
-        </div>
-      )}
+    <>
+      <section className="spotify-slot" aria-label="Player">
+        {notices.length > 0 && (
+          <div className="pointer-events-none fixed inset-0 z-[8] flex flex-col items-center justify-center gap-3 px-8 text-center">
+            {notices.map((text) => (
+              <p key={text} className="screen-status" role="status">
+                {text}
+              </p>
+            ))}
+          </div>
+        )}
 
-      {status === "ready" && song?.spotifyId && (
-        <>
+        {status === "ready" && song?.spotifyId && (
           <SpotifyPlayer
             key={playerSlot.generation}
             spotifyId={song.spotifyId}
@@ -180,10 +191,14 @@ export function PlayerBar({
             restartNonce={restartNonce}
             onPlayback={(sample) => onPlaybackRef.current(sample)}
           />
-          {previewMode && <PreviewLoginHint />}
-        </>
-      )}
-    </section>
+        )}
+      </section>
+      <div className={`spotify-hint-slot${previewMode ? " is-in" : ""}`}>
+        <div className="spotify-hint-clip">
+          <PreviewLoginHint />
+        </div>
+      </div>
+    </>
   );
 }
 
