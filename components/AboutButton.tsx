@@ -20,7 +20,7 @@ export function AboutButton() {
       return;
     }
     if (!wasOpenRef.current) return;
-    buttonRef.current?.focus({ focusVisible: true });
+    buttonRef.current?.focus();
   }, [open]);
 
   return (
@@ -50,7 +50,7 @@ function AboutDialog({ onClose }: { onClose: () => void }) {
     if (!dialog) return;
 
     dialog.showModal();
-    closeRef.current?.focus({ focusVisible: true });
+    closeRef.current?.focus();
 
     return () => {
       // Closing here is only for unmount. Don't listen for the close
