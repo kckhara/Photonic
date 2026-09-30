@@ -160,32 +160,18 @@ export function PlayerBar({
     };
   }, [selection]);
 
+  const notices = screenNotices(status, message, song);
+
   return (
     <section className="spotify-slot" aria-label="Player">
-      {status === "loading" && (
-        <p className="spotify-status" role="status">
-          {message}
-        </p>
-      )}
-
-      {status === "error" && (
-        <p className="spotify-status" role="status">
-          {message}
-        </p>
-      )}
-
-      {status === "ready" && song && !hasPhotos(song) && (
-        <p className="spotify-status" role="status">
-          We couldn’t load photos for this song. Please try again.
-        </p>
-      )}
-
-      {status === "ready" && song && !song.spotifyId && (
-        <p className="spotify-status" role="status">
-          {song.spotifyLookup === "failed"
-            ? "We couldn’t reach Spotify just now. Please try this song again."
-            : "This song isn’t on Spotify, so it can’t play here. Try another one."}
-        </p>
+      {notices.length > 0 && (
+        <div className="pointer-events-none fixed inset-0 z-[8] flex flex-col items-center justify-center gap-3 px-8 text-center">
+          {notices.map((text) => (
+            <p key={text} className="screen-status" role="status">
+              {text}
+            </p>
+          ))}
+        </div>
       )}
 
       {status === "ready" && song?.spotifyId && (
@@ -476,6 +462,7 @@ async function fetchSongPackage(
     bpm: body.bpm ?? 120,
     lyricsType: body.lyricsType ?? "none",
     scenes: body.scenes ?? [],
+    photosBusy: body.photosBusy === true,
   };
 }
 
@@ -505,6 +492,36 @@ function friendlyLoadMessage(error: unknown): string {
 
 function hasPhotos(song: SongPackage): boolean {
   return song.scenes.some((scene) => scene.photos.length > 0);
+}
+
+/**
+ * Lines that sit in the center of the screen: loading, and the reasons
+ * the pictures or the player could not start.
+ */
+function screenNotices(
+  status: LoadStatus,
+  message: string,
+  song: SongPackage | null,
+): string[] {
+  if (status === "loading" || status === "error") return [message];
+  if (status !== "ready" || !song) return [];
+
+  const notices: string[] = [];
+  if (!hasPhotos(song)) {
+    notices.push(
+      song.photosBusy
+        ? "Photo lookup is busy. Wait a minute, then try this song again."
+        : "We couldn’t load photos for this song. Please try again.",
+    );
+  }
+  if (!song.spotifyId) {
+    notices.push(
+      song.spotifyLookup === "failed"
+        ? "We couldn’t reach Spotify just now. Please try this song again."
+        : "This song isn’t on Spotify, so it can’t play here. Try another one.",
+    );
+  }
+  return notices;
 }
 
 /**

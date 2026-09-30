@@ -68,6 +68,59 @@ export type ScenePhotoChoice = {
   source: PhotoSource;
 };
 
+/** Pexels answered 429. One search can stop; the song should not. */
+export class PexelsBusyError extends Error {
+  constructor() {
+    super(
+      "Pexels is busy right now (too many photo lookups). Wait a minute and try again.",
+    );
+    this.name = "PexelsBusyError";
+  }
+}
+
+export function isPexelsBusy(error: unknown): boolean {
+  return (
+    error instanceof PexelsBusyError ||
+    (error instanceof Error &&
+      (error.message.includes("too many photo lookups") ||
+        error.message.includes("too many video lookups")))
+  );
+}
+
+type PhotoSearchGate = {
+  search: (query: string, page: number) => Promise<Photo[]>;
+  curated: (page: number) => Promise<Photo[]>;
+  wasBusy: () => boolean;
+};
+
+/**
+ * Shared by every search in one song.
+ * After Pexels says it is busy, later searches are skipped instead of
+ * firing more requests and failing the whole song.
+ */
+function photoSearchGate(): PhotoSearchGate {
+  let busy = false;
+
+  async function guard(load: () => Promise<Photo[]>): Promise<Photo[]> {
+    if (busy) return [];
+    try {
+      return await load();
+    } catch (error) {
+      if (!isPexelsBusy(error)) throw error;
+      busy = true;
+      console.error("Photo lookup paused", error);
+      return [];
+    }
+  }
+
+  return {
+    search: (query, page) =>
+      query ? guard(() => getFilteredSearch(query, page)) : Promise.resolve([]),
+    curated: (page) => guard(() => getCuratedPage(page)),
+    wasBusy: () => busy,
+  };
+}
+
 /**
  * Fill each scene with photos.
  * Scenes are handled in order so a photo used by an earlier scene
@@ -79,20 +132,9 @@ export async function attachPhotos(
   bpm: number,
 ): Promise<Scene[]> {
   const usedIds = new Set<number>();
-  // The title card is not a picture-word, so it doesn't take a style word.
-  const lyricScenes = scenes.filter((scene) => !scene.titleCard);
-
-  // Load the style searches together. Choosing photos stays in order.
-  const styleQueries = lyricScenes
-    .map((scene, index) =>
-      scene.keyword.trim()
-        ? styleQuery(scene.keyword, styleWordAt(index))
-        : "",
-    )
-    .filter((query) => query.length > 0);
-  await Promise.all(
-    [...new Set(styleQueries)].map((query) => getFilteredSearch(query, 1)),
-  );
+  // One busy response from Pexels stops later searches in this song.
+  // Scenes that already have photos are kept.
+  const gate = photoSearchGate();
 
   const filled: Scene[] = [];
   let lyricIndex = 0;
@@ -109,10 +151,15 @@ export async function attachPhotos(
       lyricIndex,
       usedIds,
       needed,
+      gate,
     );
     lyricIndex += 1;
     for (const photo of choice.photos) usedIds.add(photo.id);
     filled.push({ ...scene, photos: choice.photos });
+  }
+
+  if (gate.wasBusy() && filled.every((scene) => scene.photos.length === 0)) {
+    throw new PexelsBusyError();
   }
 
   return filled;
@@ -130,19 +177,20 @@ export async function chooseScenePhotos(
   sceneIndex: number,
   usedIds: Set<number>,
   needed = 3,
+  gate: PhotoSearchGate = photoSearchGate(),
 ): Promise<ScenePhotoChoice> {
   const styleWord = styleWordAt(sceneIndex);
   const count = Math.max(1, needed);
   const styled = styleQuery(keyword, styleWord);
 
   if (keyword.trim()) {
-    const stylePage = unused(await getFilteredSearch(styled, 1), usedIds);
+    const stylePage = unused(await gate.search(styled, 1), usedIds);
     const onTopic = mentioning(stylePage, keyword);
     let barePage: Photo[] = [];
     let usedBareWord = false;
 
     if (onTopic.length < count) {
-      barePage = unused(await getFilteredSearch(keyword, 1), usedIds);
+      barePage = unused(await gate.search(keyword, 1), usedIds);
       const bareHits = mentioning(barePage, keyword);
       if (bareHits.length > 0) usedBareWord = true;
       addNew(onTopic, bareHits);
@@ -151,10 +199,10 @@ export async function chooseScenePhotos(
     if (onTopic.length < count) {
       addNew(
         onTopic,
-        mentioning(unused(await getFilteredSearch(styled, 2), usedIds), keyword),
+        mentioning(unused(await gate.search(styled, 2), usedIds), keyword),
       );
       const bareMore = mentioning(
-        unused(await getFilteredSearch(keyword, 2), usedIds),
+        unused(await gate.search(keyword, 2), usedIds),
         keyword,
       );
       if (bareMore.length > 0) usedBareWord = true;
@@ -174,7 +222,7 @@ export async function chooseScenePhotos(
     // Nothing was labeled with the word. Use the plain search anyway.
     let bare = [...barePage];
     if (bare.length < count) {
-      addNew(bare, unused(await getFilteredSearch(keyword, 2), usedIds));
+      addNew(bare, unused(await gate.search(keyword, 2), usedIds));
     }
 
     if (bare.length > 0) {
@@ -189,7 +237,7 @@ export async function chooseScenePhotos(
 
   const curated: Photo[] = [];
   for (let page = 1; page <= CURATED_PAGES && curated.length < count; page += 1) {
-    addNew(curated, unused(await getCuratedPage(page), usedIds));
+    addNew(curated, unused(await gate.curated(page), usedIds));
   }
 
   return {
@@ -326,9 +374,7 @@ async function pexelsGet(
   }
 
   if (response.status === 429) {
-    throw new Error(
-      "Pexels is busy right now (too many photo lookups). Wait a minute and try again.",
-    );
+    throw new PexelsBusyError();
   }
 
   if (!response.ok) {

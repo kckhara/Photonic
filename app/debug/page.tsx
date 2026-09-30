@@ -312,7 +312,7 @@ function SceneRow({ scene }: { scene: Scene }) {
 
       {scene.titleCard ? (
         <p className="text-sm opacity-70">
-          Album cover, with the song title and artist, until the first lyric.
+          Album cover, with a countdown to the first photo or clip.
         </p>
       ) : scene.photos.length === 0 ? (
         <p className="text-sm opacity-70">No photos for this word.</p>

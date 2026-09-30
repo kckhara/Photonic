@@ -98,6 +98,8 @@ export type SongPackage = {
   bpm: number;
   lyricsType: LyricsType;
   scenes: Scene[];
+  // True when Pexels hit its hourly limit and no photos came back.
+  photosBusy?: boolean;
 };
 
 /**

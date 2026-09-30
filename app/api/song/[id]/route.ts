@@ -1,6 +1,6 @@
 import { getDeezerTrack, type DeezerTrackDetails } from "@/lib/deezer";
 import { getLyrics, type Lyrics } from "@/lib/lrclib";
-import { attachPhotos, attachVideos } from "@/lib/pexels";
+import { attachPhotos, attachVideos, isPexelsBusy } from "@/lib/pexels";
 import { scenesFromLyrics } from "@/lib/scenes";
 import { findSpotifyTrackIdByIsrc } from "@/lib/spotify";
 import { cleanBpm } from "@/lib/tempo";
@@ -66,7 +66,7 @@ export async function GET(
     const durationMs = track.durationSeconds * 1000;
     // Missing, 0, or nonsense tempo becomes 120. See cleanBpm.
     const bpm = cleanBpm(track.bpm);
-    const scenes = await scenesWithPhotos(
+    const { scenes, photosBusy } = await scenesWithPhotos(
       // Plain lyrics are spread evenly in here. No lyrics comes back empty,
       // and scenesWithPhotos fills that with curated photos.
       scenesFromLyrics({
@@ -91,6 +91,7 @@ export async function GET(
       bpm,
       lyricsType: lyrics.lyricsType,
       scenes,
+      ...(photosBusy ? { photosBusy: true } : {}),
     };
 
     return Response.json(song);
@@ -153,14 +154,17 @@ async function scenesWithPhotos(
   drafts: Scene[],
   durationMs: number,
   bpm: number,
-): Promise<Scene[]> {
+): Promise<{ scenes: Scene[]; photosBusy: boolean }> {
   try {
-    return await fillScenes(drafts, durationMs, bpm);
+    return {
+      scenes: await fillScenes(drafts, durationMs, bpm),
+      photosBusy: false,
+    };
   } catch (error) {
-    // A bad Pexels key or a Pexels outage. Return no photos so the page
-    // can say so, and still play the song.
+    // A bad Pexels key, a Pexels outage, or the hourly limit.
+    // Return no photos so the page can say so, and still play the song.
     console.error("Photo lookup failed", error);
-    return [];
+    return { scenes: [], photosBusy: isPexelsBusy(error) };
   }
 }
 

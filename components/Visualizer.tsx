@@ -34,9 +34,9 @@ import type {
  * the beat. Two copies of the photo sit on top of each other so the new
  * one can fade in while the old one is still there (no blank flash).
  *
- * Before the first lyric, a title card shows the album cover with the
- * song title and artist. Pictures and clips wait until that lyric.
- * The card also stays up while the first photo is still downloading.
+ * Before the first photo or clip, a title card shows the album cover
+ * and a countdown to that first picture. Pictures and clips wait until
+ * then. The card also stays up while the first photo is still downloading.
  * The first photo fades in on top of that card.
  *
  * A song with no lyrics skips the title card. For the first 5 seconds
@@ -757,8 +757,8 @@ export function Visualizer({
   const noLyrics = song.lyricsType === "none";
   const beatOnly = previewMode;
   const hasPhotos = song.scenes.some((scene) => scene.photos.length > 0);
-  // No lyrics and no photos: nothing to draw. The player explains it.
-  if (!hasPhotos && (noLyrics || beatOnly)) return null;
+  // No photos: nothing to draw. A centered line explains that.
+  if (!hasPhotos) return null;
 
   const showTitle = titleHeld && !noLyrics && !beatOnly && !holdPhotos;
   // Video and Mix need the players mounted even before the first photo,
@@ -794,7 +794,13 @@ export function Visualizer({
       style={{ backgroundColor: holdPhotos ? "var(--color-bg-black)" : placeholder }}
       aria-hidden="true"
     >
-      {showTitle && <TitleCard song={song} />}
+      {showTitle && (
+        <TitleCard
+          song={song}
+          playback={playback}
+          visualMode={visualMode}
+        />
+      )}
       {!holdPhotos &&
         slides.map((slide, index) => (
           <FadePhoto
@@ -879,11 +885,47 @@ function ClipSurface({
 }
 
 /**
- * Album cover, song title, and artist.
- * Shown before the first lyric, and until the first photo has faded in.
- * Simple on purpose — the real design comes in Phase 10.
+ * Album cover and a countdown to the first photo or clip.
+ * Shown through the opening, and until that first picture has faded in.
  */
-function TitleCard({ song }: { song: SongPackage }) {
+function TitleCard({
+  song,
+  playback,
+  visualMode,
+}: {
+  song: SongPackage;
+  playback: PlaybackSample | null;
+  visualMode: VisualMode;
+}) {
+  const startsAtMs = firstVisualStartMs(song.scenes, visualMode);
+  const playbackRef = useRef(playback);
+  playbackRef.current = playback;
+
+  const [secondsLeft, setSecondsLeft] = useState(() =>
+    secondsUntilShow(startsAtMs, playback),
+  );
+
+  // Spotify reports position about once a second. Between reports, follow
+  // the song clock so the countdown keeps moving while the music plays
+  // and holds still while it is paused.
+  useEffect(() => {
+    let frame = 0;
+    let shown = secondsUntilShow(startsAtMs, playbackRef.current);
+    setSecondsLeft(shown);
+
+    const tick = () => {
+      const next = secondsUntilShow(startsAtMs, playbackRef.current);
+      if (next !== shown) {
+        shown = next;
+        setSecondsLeft(next);
+      }
+      frame = requestAnimationFrame(tick);
+    };
+
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [startsAtMs]);
+
   return (
     <div className="absolute inset-0" style={{ zIndex: 0 }}>
       {song.albumCoverUrl ? (
@@ -899,15 +941,45 @@ function TitleCard({ song }: { song: SongPackage }) {
       )}
       <div className="absolute inset-0 bg-[var(--color-bg-black)]/45" />
       <div className="absolute inset-0 flex flex-col items-center justify-center px-8 text-center">
-        <p className="[font-size:var(--font-size-credits-song)] [font-weight:var(--font-weight-credits-song)] [line-height:var(--line-height-credits-song)] [letter-spacing:var(--letter-spacing-credits-song)] [color:var(--color-text-heading)]">
-          {song.title}
-        </p>
-        <p className="mt-3 [font-size:var(--font-size-credits-musician)] [font-weight:var(--font-weight-credits-musician)] [line-height:var(--line-height-credits-musician)] [color:var(--color-text-secondary)]">
-          {song.artist}
+        <p className="screen-status tabular-nums">
+          Visuals start in {formatCountdown(secondsLeft)}
         </p>
       </div>
     </div>
   );
+}
+
+/**
+ * When the first photo or clip is scheduled to appear.
+ * Scenes with nothing to show are skipped, so the countdown lands on
+ * the first picture people will actually see.
+ */
+function firstVisualStartMs(scenes: Scene[], mode: VisualMode): number {
+  for (const scene of scenes) {
+    if (scene.titleCard) continue;
+    if (sceneShowsClip(scene, mode) || scene.photos.length > 0) {
+      return scene.startMs;
+    }
+  }
+
+  const card = scenes.find((scene) => scene.titleCard);
+  return card?.endMs ?? 0;
+}
+
+/** Whole seconds left until the first picture, counting the current second. */
+function secondsUntilShow(
+  startsAtMs: number,
+  playback: PlaybackSample | null,
+): number {
+  const remaining = startsAtMs - estimatePositionMs(playback);
+  if (!(remaining > 0)) return 0;
+  return Math.ceil(remaining / 1000);
+}
+
+function formatCountdown(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
 /**

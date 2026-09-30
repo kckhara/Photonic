@@ -574,14 +574,16 @@ body {
   border: 0;
 }
 
-.spotify-status {
+/* Loading, the opening countdown, and player errors share this type. */
+.screen-status {
   margin: 0;
-  min-height: var(--space-spotify-height);
+  max-width: var(--space-column-width);
   font-size: var(--font-size-loading);
   font-weight: var(--font-weight-loading);
   line-height: var(--line-height-loading);
   letter-spacing: var(--letter-spacing-loading);
   color: var(--color-text-secondary);
+  text-align: center;
 }
 
 .spotify-login-link {
