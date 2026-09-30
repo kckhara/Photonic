@@ -36,7 +36,8 @@ import type {
  * If Spotify is only playing a 30-second preview, a line under the
  * player offers a login link. Photos keep playing behind it.
  *
- * When a full song finishes, a credits screen covers the page. A preview
+ * When a full song finishes, a credits screen covers the pictures.
+ * Search stays at the top so another song can be chosen. A preview
  * never uses that screen.
  */
 
@@ -65,7 +66,6 @@ export default function Home() {
   // Skip end detection for the sample that "Play again" or "Reload" just caused.
   const ignoreEndRef = useRef(false);
   const acceptPlaybackAfterRef = useRef(0);
-  const commandNonce = useRef(0);
   const songRef = useRef<SongPackage | null>(null);
   const playbackRef = useRef<PlaybackSample | null>(null);
   const previewModeRef = useRef(false);
@@ -84,7 +84,6 @@ export default function Home() {
   const [showNoLyricsSentence, setShowNoLyricsSentence] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
   const [playerCommand, setPlayerCommand] = useState<PlayerCommand | null>(null);
-  const [searchResetKey, setSearchResetKey] = useState(0);
   const [showCredits, setShowCredits] = useState(false);
   // Copied when the song ends, then updated if the last photo finishes
   // fading in a moment later.
@@ -151,7 +150,7 @@ export default function Home() {
   // back when the pointer, keyboard, or wheel moves. Wait until the
   // player has moved in, so search doesn't slide away while it loads.
   useEffect(() => {
-    if (!pick || !playerIn || searchOpen) return;
+    if (!pick || !playerIn || searchOpen || showCredits) return;
 
     let idle = false;
     let suppressUntil = 0;
@@ -191,7 +190,7 @@ export default function Home() {
       window.clearTimeout(timer);
       for (const name of events) window.removeEventListener(name, wake);
     };
-  }, [pick, playerIn, searchOpen]);
+  }, [pick, playerIn, searchOpen, showCredits]);
 
   function enterPreview() {
     previewModeRef.current = true;
@@ -258,6 +257,7 @@ export default function Home() {
     creditsOpenRef.current = true;
     setCreditPhotos(shownPhotosRef.current);
     setCreditVideos(shownVideosRef.current);
+    setControlsIdle(false);
     setShowCredits(true);
   }
 
@@ -352,38 +352,6 @@ export default function Home() {
     else if (lastVerdictRef.current === "full") considerSongEnd(sample);
   }
 
-  // Seek back to the start and play. The next "ended" reading is ignored
-  // until the music is actually moving again, so the jump to 0 doesn't
-  // look like another ending.
-  function restartPlayback() {
-    acceptPlaybackAfterRef.current = performance.now();
-    ignoreEndRef.current = true;
-    nearEndRef.current = false;
-    commandNonce.current += 1;
-    setPlayerCommand({ kind: "restart", nonce: commandNonce.current });
-  }
-
-  function onPlayCreditsAgain() {
-    closeCredits();
-    restartPlayback();
-  }
-
-  function onNewSearch() {
-    songRef.current = null;
-    setHoldPhotos(false);
-    setShowNoLyricsSentence(false);
-    closeCredits();
-    setPick(null);
-    setPlayerIn(false);
-    setSong(null);
-    setPlayback(null);
-    resetPreviewState();
-    shownPhotosRef.current = [];
-    shownVideosRef.current = [];
-    setControlsIdle(false);
-    setSearchResetKey((current) => current + 1);
-  }
-
   function onSearchOpenChange(open: boolean) {
     if (open) setControlsIdle(false);
     setSearchOpen(open);
@@ -401,7 +369,7 @@ export default function Home() {
 
   return (
     <div
-      className={`relative min-h-screen${pick && controlsIdle ? " is-controls-idle" : ""}`}
+      className={`relative min-h-screen${pick && controlsIdle ? " is-controls-idle" : ""}${showCredits ? " is-credits" : ""}`}
     >
       <Visualizer
         key={pick?.pickId ?? 0}
@@ -425,14 +393,14 @@ export default function Home() {
           <NoLyricsMessage />
         </div>
       )}
-      {/* While credits cover the page, the search and player behind
-          them should not take clicks or keyboard focus. */}
-      <div
-        className={pick ? "home-controls has-player" : undefined}
-        inert={showCredits ? true : undefined}
-      >
+      {/* Credits keep the search. The player and filters sit behind
+          the black panel, so they should not take clicks or focus. */}
+      <div className={pick ? "home-controls has-player" : undefined}>
         {pick && (
-          <main className={`home-player${playerIn ? " is-in" : ""}`}>
+          <main
+            className={`home-player${playerIn ? " is-in" : ""}`}
+            inert={showCredits ? true : undefined}
+          >
             <div className="home-player-clip">
               <PlayerBar
                 key={pick.pickId}
@@ -449,17 +417,13 @@ export default function Home() {
         <div className={pick ? "home-controls-lower" : undefined}>
           <div
             className="home-search-slot"
-            inert={pick && controlsIdle ? true : undefined}
+            inert={pick && controlsIdle && !showCredits ? true : undefined}
           >
-            <SearchBox
-              onSelect={onSelect}
-              resetKey={searchResetKey}
-              onOpenChange={onSearchOpenChange}
-            />
+            <SearchBox onSelect={onSelect} onOpenChange={onSearchOpenChange} />
           </div>
           {!pick && !searchOpen && <HomeIntro />}
           {pick && (
-            <div className="toggle-slot">
+            <div className="toggle-slot" inert={showCredits ? true : undefined}>
               <div className="toggle-slot-clip">
                 <div className="toggle-row">
                   <VisualModeToggle
@@ -475,13 +439,7 @@ export default function Home() {
         </div>
       </div>
       {showCredits && song && (
-        <Credits
-          song={song}
-          photos={creditPhotos}
-          videos={creditVideos}
-          onPlayAgain={onPlayCreditsAgain}
-          onNewSearch={onNewSearch}
-        />
+        <Credits song={song} photos={creditPhotos} videos={creditVideos} />
       )}
       <AboutButton />
     </div>

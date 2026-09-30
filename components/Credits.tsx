@@ -4,41 +4,43 @@ import { useLayoutEffect, useRef, type ReactNode } from "react";
 import type { Photo, SongPackage, VideoClip } from "@/lib/types";
 
 /**
- * The screen that appears when a full song finishes (plan section 5.5).
+ * The screen that appears when a full song finishes.
  *
- * It names the musician, then shows every photo that actually appeared,
- * in a grid. The photographer's name under each picture links to their
- * Pexels profile. The picture itself links to that photo's page on Pexels.
+ * Search stays above this panel, so another song can be chosen from here.
+ * The panel names the musician, then every photo and clip that actually
+ * played. A picture links to its Pexels page. The name under it links to
+ * the photographer or videographer.
  *
- * A 30-second preview does not use this screen. That ending stays on
- * the Spotify login prompt.
- *
- * Simple on purpose — the real design comes in Phase 10.
- * Clips that actually played are listed under "Footage by".
+ * A 30-second preview does not use this screen.
  */
+
+const BUILT_WITH = [
+  {
+    label: "Spotify Embeds and iFrame API",
+    href: "https://developer.spotify.com/documentation/embeds",
+  },
+  { label: "LRCLIB", href: "https://lrclib.net" },
+  { label: "Pexels", href: "https://www.pexels.com" },
+  { label: "Pexels Videos", href: "https://www.pexels.com/videos/" },
+] as const;
 
 export function Credits({
   song,
   photos,
   videos,
-  onPlayAgain,
-  onNewSearch,
 }: {
   song: SongPackage;
   // Photos that really appeared on screen, in the order they appeared.
   photos: Photo[];
   // Clips that really played, in the order they played.
   videos: VideoClip[];
-  onPlayAgain: () => void;
-  onNewSearch: () => void;
 }) {
   const shown = uniquePhotos(photos);
   const footage = uniqueClips(videos);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // Open on the song title. The Play again button used to take focus
-  // immediately, and the browser scrolls to the focused control. That
-  // button sits under the photos, so the credits opened at the bottom.
+  // Open on the song title. A focused control lower on the page would
+  // scroll the panel down before anyone has read the name.
   useLayoutEffect(() => {
     function showTitle() {
       if (panelRef.current) panelRef.current.scrollTop = 0;
@@ -46,7 +48,6 @@ export function Credits({
     }
 
     showTitle();
-    // Focus can move a frame later, once the player underneath is covered.
     const frame = requestAnimationFrame(showTitle);
     return () => cancelAnimationFrame(frame);
   }, []);
@@ -54,48 +55,44 @@ export function Credits({
   return (
     <div
       ref={panelRef}
-      className="fixed inset-0 z-20 overflow-y-auto bg-[var(--color-bg-black)] [color:var(--color-text-heading)]"
+      className="credits"
       role="region"
       aria-label="Credits"
     >
-      <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-6 py-16">
-        <h2 className="[font-size:var(--font-size-credits-song)] [font-weight:var(--font-weight-credits-song)] [line-height:var(--line-height-credits-song)] [letter-spacing:var(--letter-spacing-credits-song)] [color:var(--color-text-heading)]">
-          {song.title}
-        </h2>
-        <p className="mt-3 [font-size:var(--font-size-credits-musician)] [font-weight:var(--font-weight-credits-musician)] [line-height:var(--line-height-credits-musician)] [color:var(--color-text-secondary)]">
-          <OutboundLink href={song.artistUrl} className="underline underline-offset-[var(--space-underline-offset)]">
-            {song.artist}
-          </OutboundLink>
+      {/* Opaque black behind the search, so scrolling names don't show
+          through the translucent search fill. */}
+      <div className="credits-mask" aria-hidden="true" />
+      <div className="credits-sheet">
+        <h2 className="credits-song">{song.title}</h2>
+        <p className="credits-musician">
+          <TextLink href={song.artistUrl}>{song.artist}</TextLink>
         </p>
 
         {shown.length > 0 && (
-          <section className="mt-12" aria-label="Photographs by">
-            <h3 className="[font-size:var(--font-size-credits-heading)] [font-weight:var(--font-weight-credits-heading)] [line-height:var(--line-height-credits-heading)] [letter-spacing:var(--letter-spacing-credits-heading)] [color:var(--color-text-heading)]">
-              Photographs by
+          <section className="credits-section" aria-labelledby="credits-photos">
+            <h3 id="credits-photos" className="credits-heading">
+              Photos
             </h3>
-            {/* One cell per photo that was on screen, in the order they appeared. */}
-            <ul className="mt-6 grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3">
+            <ul className="credits-grid">
               {shown.map((photo) => {
                 const name = photo.photographer.trim() || "Unknown photographer";
                 return (
-                  <li key={photo.id} className="min-w-0">
-                    <OutboundLink href={photo.pexelsUrl} className="block">
+                  <li key={photo.id} className="credits-cell">
+                    <OutboundLink
+                      href={photo.pexelsUrl}
+                      className="credits-tile"
+                      label={`Photo by ${name} on Pexels`}
+                    >
                       {/* Plain img: these files are already on screen.
                           The grid only needs a linked thumbnail. */}
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={photo.src}
                         alt={photo.alt.trim() || `Photo by ${name} on Pexels`}
-                        className="aspect-video w-full rounded-[var(--radius-tile)] object-cover"
                       />
                     </OutboundLink>
-                    <p className="mt-2 [font-size:var(--font-size-credits-caption)] [font-weight:var(--font-weight-credits-caption)] [line-height:var(--line-height-credits-caption)] [color:var(--color-text-secondary)]">
-                      <OutboundLink
-                        href={photo.photographerUrl.trim()}
-                        className="underline underline-offset-[var(--space-underline-offset)]"
-                      >
-                        {name}
-                      </OutboundLink>
+                    <p className="credits-caption">
+                      <TextLink href={photo.photographerUrl.trim()}>{name}</TextLink>
                     </p>
                   </li>
                 );
@@ -105,34 +102,30 @@ export function Credits({
         )}
 
         {footage.length > 0 && (
-          <section className="mt-12" aria-label="Footage by">
-            <h3 className="[font-size:var(--font-size-credits-heading)] [font-weight:var(--font-weight-credits-heading)] [line-height:var(--line-height-credits-heading)] [letter-spacing:var(--letter-spacing-credits-heading)] [color:var(--color-text-heading)]">
-              Footage by
+          <section className="credits-section" aria-labelledby="credits-videos">
+            <h3 id="credits-videos" className="credits-heading">
+              Videos
             </h3>
-            <ul className="mt-6 grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3">
+            <ul className="credits-grid credits-grid-videos">
               {footage.map((clip) => {
                 const name = clip.videographer.trim() || "Unknown videographer";
                 return (
-                  <li key={clip.id} className="min-w-0">
-                    <OutboundLink href={clip.pexelsUrl} className="block">
+                  <li key={clip.id} className="credits-cell">
+                    <OutboundLink
+                      href={clip.pexelsUrl}
+                      className="credits-tile credits-tile-video"
+                      label={`Footage by ${name} on Pexels`}
+                    >
                       {clip.poster ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={clip.poster}
-                          alt={`Footage by ${name} on Pexels`}
-                          className="aspect-video w-full rounded-[var(--radius-tile)] object-cover"
-                        />
-                      ) : (
-                        <div className="aspect-video w-full rounded-[var(--radius-tile)] bg-[var(--color-credits-tile)]" />
-                      )}
+                        <img src={clip.poster} alt={`Footage by ${name} on Pexels`} />
+                      ) : null}
+                      <span className="credits-play" aria-hidden="true">
+                        <PlayIcon />
+                      </span>
                     </OutboundLink>
-                    <p className="mt-2 [font-size:var(--font-size-credits-caption)] [font-weight:var(--font-weight-credits-caption)] [line-height:var(--line-height-credits-caption)] [color:var(--color-text-secondary)]">
-                      <OutboundLink
-                        href={clip.videographerUrl.trim()}
-                        className="underline underline-offset-[var(--space-underline-offset)]"
-                      >
-                        {name}
-                      </OutboundLink>
+                    <p className="credits-caption">
+                      <TextLink href={clip.videographerUrl.trim()}>{name}</TextLink>
                     </p>
                   </li>
                 );
@@ -141,40 +134,20 @@ export function Credits({
           </section>
         )}
 
-        <div className="mt-12 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={onPlayAgain}
-            className="rounded-[var(--radius-prompt-button)] bg-[var(--color-button-filled)] px-3 py-2 [font-size:var(--font-size-button-filled)] [font-weight:var(--font-weight-button-filled)] [line-height:var(--line-height-button-filled)] [letter-spacing:var(--letter-spacing-button-filled)] text-[color:var(--color-text-on-selected)] hover:bg-[var(--color-button-filled-hover)]"
-          >
-            Play again
-          </button>
-          <button
-            type="button"
-            onClick={onNewSearch}
-            className="rounded-[var(--radius-prompt-button)] border-[length:var(--border-width)] border-solid [border-color:var(--color-outline)] bg-transparent px-3 py-2 [font-size:var(--font-size-button-outlined)] [font-weight:var(--font-weight-button-outlined)] [line-height:var(--line-height-button-outlined)] [letter-spacing:var(--letter-spacing-button-outlined)] text-[color:var(--color-text-primary)] hover:bg-[var(--color-hover-outlined)]"
-          >
-            New search
-          </button>
-        </div>
-
-        <footer className="mt-auto pt-16 [font-size:var(--font-size-credits-link)] [font-weight:var(--font-weight-credits-link)] [line-height:var(--line-height-credits-link)] [color:var(--color-link)]">
-          <AttributionLink href="https://www.pexels.com">
-            Photos and videos provided by Pexels
-          </AttributionLink>
-          <Separator />
-          <AttributionLink href="https://lrclib.net">
-            Lyrics from LRCLIB
-          </AttributionLink>
-          <Separator />
-          <AttributionLink href="https://www.deezer.com">
-            Search by Deezer
-          </AttributionLink>
-          <Separator />
-          <AttributionLink href="https://open.spotify.com">
-            Music on Spotify
-          </AttributionLink>
-        </footer>
+        <section className="credits-section credits-built" aria-labelledby="credits-built">
+          <h3 id="credits-built" className="credits-heading">
+            Built with
+          </h3>
+          <ul className="credits-links">
+            {BUILT_WITH.map((item) => (
+              <li key={item.href}>
+                <a href={item.href} target="_blank" rel="noopener noreferrer">
+                  {item.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
       </div>
     </div>
   );
@@ -208,13 +181,15 @@ function uniquePhotos(photos: Photo[]): Photo[] {
 function OutboundLink({
   href,
   className,
+  label,
   children,
 }: {
   href: string;
   className?: string;
+  label?: string;
   children: ReactNode;
 }) {
-  if (!href) return <>{children}</>;
+  if (!href) return <span className={className}>{children}</span>;
 
   return (
     <a
@@ -222,31 +197,28 @@ function OutboundLink({
       target="_blank"
       rel="noopener noreferrer"
       className={className}
+      aria-label={label}
     >
       {children}
     </a>
   );
 }
 
-function AttributionLink({
-  href,
-  children,
-}: {
-  href: string;
-  children: ReactNode;
-}) {
+/** Name under the title or a tile. Looks like text until hover or focus. */
+function TextLink({ href, children }: { href: string; children: ReactNode }) {
+  if (!href) return <>{children}</>;
+
   return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="underline underline-offset-[var(--space-underline-offset)] hover:[color:var(--color-link-hover)]"
-    >
+    <a href={href} target="_blank" rel="noopener noreferrer" className="credits-text-link">
       {children}
     </a>
   );
 }
 
-function Separator() {
-  return <span aria-hidden="true"> · </span>;
+function PlayIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="credits-play-icon" aria-hidden="true">
+      <path d="M9.1 7.15v9.7l8-4.85-8-4.85Z" fill="currentColor" />
+    </svg>
+  );
 }

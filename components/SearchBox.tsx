@@ -27,7 +27,7 @@ export function SearchBox({
   onOpenChange,
 }: {
   onSelect: (hit: SearchHit) => void;
-  // Bumps when "New search" is clicked, so the field clears.
+  // Bumps when the field should clear.
   resetKey?: number;
   // True while the results list is open, so the homepage intro can step aside.
   onOpenChange?: (open: boolean) => void;
@@ -44,7 +44,7 @@ export function SearchBox({
   const inputRef = useRef<HTMLInputElement>(null);
   const [seenReset, setSeenReset] = useState(resetKey);
 
-  // "New search" clears the field. Focus happens after paint, below.
+  // A reset clears the field. Focus happens after paint, below.
   if (resetKey !== seenReset) {
     setSeenReset(resetKey);
     setQuery("");
