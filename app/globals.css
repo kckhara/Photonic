@@ -1041,8 +1041,8 @@ body {
   }
 
   .home-intro-title {
-    width: 80%;
-    font-size: clamp(28.16px, 7.92vw, var(--font-size-homepage-header));
+    width: 88%;
+    font-size: clamp(31px, 9vw, var(--font-size-homepage-header));
   }
 
   .no-lyrics-overlay {
