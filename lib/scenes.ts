@@ -11,6 +11,8 @@
  * It has no picture-word. The visualizer draws the album cover there.
  * A title or a spoken line stamped at the very start, with a long wait
  * before the singing, is part of that intro — not a picture yet.
+ * A slow verse is not that wait. Line spacing follows the song, and a
+ * line with nothing to picture ("ooh") still counts as singing.
  *
  * Each scene remembers how many lyric lines used its word. Mix mode
  * (Phase 9B) plays video only when that count is more than one.
@@ -107,17 +109,35 @@ export function beatOnlyScenes(scenes: Scene[], durationMs: number): Scene[] {
 }
 
 function keywordsFromSyncedLyrics(synced: string): TimedKeyword[] {
+  const parsed = parseSyncedLyrics(synced);
+  // Decide where the singing starts before dropping lines that have
+  // nothing to picture. "Ooh" is still a sung line. Removing it first
+  // opens a hole, and a slow verse on the other side of that hole
+  // looks like an intro that never happened.
+  const vocalStart = firstSungLineMs(parsed.map((line) => line.startMs));
+  const sung = parsed.filter((line) => line.startMs >= vocalStart);
   const timed: TimedKeyword[] = [];
 
-  for (const line of parseSyncedLyrics(synced)) {
+  for (const line of sung) {
     const keyword = keywordFromLine(line.text);
     if (!keyword) continue;
     timed.push({ startMs: line.startMs, keyword });
   }
 
+  timed.sort((a, b) => a.startMs - b.startMs);
+
+  // The opening lines may be singing and still have no picture-word.
+  // Start the first picture then, so the countdown doesn't run through
+  // lyrics that are already being sung.
+  const openingMs =
+    sung.length > 0 ? Math.min(...sung.map((line) => line.startMs)) : 0;
+  if (timed.length > 0 && openingMs < timed[0].startMs) {
+    timed[0] = { ...timed[0], startMs: openingMs };
+  }
+
   // Do this before the 20-word cap. Dropping later lines would open
   // a fake gap and look like an intro.
-  return limitKeywords(dropUnsungOpening(timed));
+  return limitKeywords(timed);
 }
 
 function scenesFromPlainLyrics(plain: string, durationMs: number): Scene[] {
@@ -211,39 +231,55 @@ function stampsToKeep(stamps: number[]): number[] {
 }
 
 /**
- * Some lyric files start with a title ("As It Was - Harry Styles") or a
- * spoken line at 0:00, then a long pause, then the singing. Those early
- * lines are not the first lyric. Drop them so the album cover stays up
- * until the singing starts.
+ * When the singing actually starts.
  *
- * A song that really begins with singing is left alone. Once two lines
- * sit a normal distance apart, the vocals have started.
+ * Some lyric files open with a title ("As It Was - Harry Styles") or a
+ * spoken line at 0:00, then a long pause, then the singing. That prefix
+ * is not the first lyric. The album cover stays up until the singing.
+ *
+ * A pause counts as singing when it fits this song. A ballad leaves
+ * about ten seconds between lines, which is normal for that song and
+ * not an intro. The old fixed cutoff (under 8 seconds) skipped those
+ * lines, then a later longer pause — often just "ooh" with nothing to
+ * picture — erased the verse and held the cover until a later line.
+ *
+ * One medium pause followed immediately by a much longer wait is still
+ * the intro (a title, then a spoken line, then the song). Two pauses
+ * that fit the song mean the vocals have started, even if a bridge
+ * later on is longer.
  */
-function dropUnsungOpening(lines: TimedKeyword[]): TimedKeyword[] {
-  if (lines.length < 2) return lines;
+function firstSungLineMs(startTimes: number[]): number {
+  const sorted = [...startTimes].sort((a, b) => a - b);
+  if (sorted.length < 2) return sorted[0] ?? 0;
 
-  const sorted = [...lines].sort((a, b) => a.startMs - b.startMs);
   const gaps: number[] = [];
   for (let index = 1; index < sorted.length; index += 1) {
-    gaps.push(sorted[index].startMs - sorted[index - 1].startMs);
+    gaps.push(sorted[index] - sorted[index - 1]);
   }
 
   const later = gaps.filter((gap) => gap > 0).sort((a, b) => a - b);
   const median = later.length > 0 ? later[Math.floor(later.length / 2)] : 4000;
+  // Longer than a pause in this song, and at least 8 seconds.
+  const sungThrough = Math.max(LEADING_GAP_MS, median * 2);
 
   for (let index = 0; index < gaps.length; index += 1) {
     const gap = gaps[index];
+    const next = gaps[index + 1];
+    const nextIsIntro =
+      next != null && next >= LEADING_GAP_MS && next > median * 2;
 
-    // A normal pause between two sung lines. The song has started.
-    if (gap >= 1000 && gap < LEADING_GAP_MS) return lines;
+    // A pause between two sung lines. The song has started.
+    if (gap >= 1000 && gap < sungThrough) {
+      if (nextIsIntro) continue;
+      return sorted[0];
+    }
 
     if (gap >= LEADING_GAP_MS && gap > median * 2) {
-      const lyricStart = sorted[index + 1].startMs;
-      return lines.filter((line) => line.startMs >= lyricStart);
+      return sorted[index + 1];
     }
   }
 
-  return lines;
+  return sorted[0];
 }
 
 /**
