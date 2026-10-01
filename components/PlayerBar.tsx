@@ -524,7 +524,7 @@ function loadingMessage(selection: SearchHit): string {
   if (selection.type === "artist") {
     return "Finding their top song…";
   }
-  return "Loading the song…";
+  return "Loading media…";
 }
 
 /**
