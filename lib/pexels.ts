@@ -10,7 +10,7 @@
  *
  * The same search is also sent to Unsplash (lib/unsplash.ts), at the same
  * time. The two lists are combined, duplicates removed, then the blocklist,
- * the no-repeat rule, and the random pick run on what's left. If Unsplash
+ * the no-repeat rule, and the stock score run on what's left. If Unsplash
  * fails or hits its limit, that search continues with the Pexels photos.
  *
  * For each scene:
@@ -20,7 +20,11 @@
  * - Keep a styled photo only when its description still mentions the picture-word.
  *   Otherwise "sky light" becomes a skylight and "hobo texture" becomes fabric.
  * - Skip any photo already chosen earlier in this same song.
- * - Pick enough of the remaining photos, at random, to last the whole scene.
+ * - Skip photos under 1600 pixels wide.
+ * - Score the rest. Bright color, saturated color, stock words in the
+ *   description or the url, and an overused photographer all add points.
+ *   The weights live in lib/stock-words.ts.
+ * - Pick enough of the lowest-scoring photos, at random, to last the whole scene.
  * - If that search doesn't have enough, search the word alone and keep going.
  * - If nothing describes the word, use the word-only photos anyway
  *   ("tune" may be a musician who isn't labeled "tune").
@@ -39,6 +43,18 @@ import {
   altMentionsWord,
 } from "@/lib/photo-blocklist";
 import { styleWordAt } from "@/lib/style-words";
+import {
+  BRIGHT_LIGHTNESS,
+  BRIGHT_POINTS,
+  FREQUENT_PHOTOGRAPHER_MIN_COUNT,
+  FREQUENT_PHOTOGRAPHER_POINTS,
+  MIN_PHOTO_WIDTH,
+  SATURATED_LEVEL,
+  SATURATED_POINTS,
+  STOCK_WORD_POINTS,
+  colorBrightnessAndSaturation,
+  stockWordsIn,
+} from "@/lib/stock-words";
 import { photoSlotCount } from "@/lib/tempo";
 import { searchUnsplash } from "@/lib/unsplash";
 import type { Photo, Scene, VideoClip } from "@/lib/types";
@@ -50,10 +66,12 @@ const CURATED_PAGES = 5;
 
 type PexelsPhoto = {
   id?: number;
+  width?: number;
   url?: string;
   alt?: string;
   avg_color?: string;
   photographer?: string;
+  photographer_id?: number;
   photographer_url?: string;
   src?: { large2x?: string };
 };
@@ -66,12 +84,30 @@ type PexelsResponse = {
 /** Which search the photos actually came from. */
 export type PhotoSource = "style" | "keyword" | "curated";
 
+/** One photo from the pool that competed for a scene, with why it scored. */
+export type ScoredPhoto = {
+  photo: Photo;
+  score: number;
+  reasons: string[];
+  /** HSL lightness of the average color, from 0 to 1. Null when we can't read it. */
+  lightness: number | null;
+  /** HSL saturation of the average color, from 0 to 1. Null when we can't read it. */
+  saturation: number | null;
+  /** Distinct cached photos from this photographer, across searches seen so far. */
+  photographerCount: number;
+  chosen: boolean;
+};
+
 export type ScenePhotoChoice = {
   photos: Photo[];
   styleWord: string;
   /** The words sent to Pexels. The bare keyword when the style search fell short. */
   query: string;
   source: PhotoSource;
+  /** Every wide-enough photo that competed, lowest score first. */
+  scored: ScoredPhoto[];
+  /** How many photos were left out for being under MIN_PHOTO_WIDTH. */
+  skippedNarrow: number;
 };
 
 /** Pexels answered 429. One search can stop; the song should not. */
@@ -135,13 +171,19 @@ function photoSearchGate(): PhotoSearchGate {
       unsplash,
     ]);
 
-    return combineSearchPhotos(query, [pexels, fromUnsplash]);
+    const combined = combineSearchPhotos(query, [pexels, fromUnsplash]);
+    rememberPhotographers(combined);
+    return combined;
   }
 
   return {
     search: (query, page) =>
       query ? searchBoth(query, page) : Promise.resolve([]),
-    curated: (page) => guard(() => getCuratedPage(page)),
+    curated: async (page) => {
+      const photos = await guard(() => getCuratedPage(page));
+      rememberPhotographers(photos);
+      return photos;
+    },
     wasBusy: () => busy,
   };
 }
@@ -207,15 +249,16 @@ export async function chooseScenePhotos(
   const styleWord = styleWordAt(sceneIndex);
   const count = Math.max(1, needed);
   const styled = styleQuery(keyword, styleWord);
+  const skippedNarrow = new Set<string>();
 
   if (keyword.trim()) {
-    const stylePage = unused(await gate.search(styled, 1), usedIds);
+    const stylePage = available(await gate.search(styled, 1), usedIds, skippedNarrow);
     const onTopic = mentioning(stylePage, keyword);
     let barePage: Photo[] = [];
     let usedBareWord = false;
 
     if (onTopic.length < count) {
-      barePage = unused(await gate.search(keyword, 1), usedIds);
+      barePage = available(await gate.search(keyword, 1), usedIds, skippedNarrow);
       const bareHits = mentioning(barePage, keyword);
       if (bareHits.length > 0) usedBareWord = true;
       addNew(onTopic, bareHits);
@@ -224,10 +267,13 @@ export async function chooseScenePhotos(
     if (onTopic.length < count) {
       addNew(
         onTopic,
-        mentioning(unused(await gate.search(styled, 2), usedIds), keyword),
+        mentioning(
+          available(await gate.search(styled, 2), usedIds, skippedNarrow),
+          keyword,
+        ),
       );
       const bareMore = mentioning(
-        unused(await gate.search(keyword, 2), usedIds),
+        available(await gate.search(keyword, 2), usedIds, skippedNarrow),
         keyword,
       );
       if (bareMore.length > 0) usedBareWord = true;
@@ -236,8 +282,11 @@ export async function chooseScenePhotos(
 
     // A photo that names the lyric beats a pretty photo of the style word.
     if (onTopic.length > 0) {
+      const choice = chooseLowest(onTopic, count);
       return {
-        photos: pickRandom(onTopic, count),
+        photos: choice.photos,
+        scored: choice.scored,
+        skippedNarrow: skippedNarrow.size,
         styleWord,
         query: usedBareWord ? keyword : styled,
         source: usedBareWord ? "keyword" : "style",
@@ -247,12 +296,15 @@ export async function chooseScenePhotos(
     // Nothing was labeled with the word. Use the plain search anyway.
     let bare = [...barePage];
     if (bare.length < count) {
-      addNew(bare, unused(await gate.search(keyword, 2), usedIds));
+      addNew(bare, available(await gate.search(keyword, 2), usedIds, skippedNarrow));
     }
 
     if (bare.length > 0) {
+      const choice = chooseLowest(bare, count);
       return {
-        photos: pickRandom(bare, count),
+        photos: choice.photos,
+        scored: choice.scored,
+        skippedNarrow: skippedNarrow.size,
         styleWord,
         query: keyword,
         source: "keyword",
@@ -262,11 +314,14 @@ export async function chooseScenePhotos(
 
   const curated: Photo[] = [];
   for (let page = 1; page <= CURATED_PAGES && curated.length < count; page += 1) {
-    addNew(curated, unused(await gate.curated(page), usedIds));
+    addNew(curated, available(await gate.curated(page), usedIds, skippedNarrow));
   }
 
+  const choice = chooseLowest(curated, count);
   return {
-    photos: pickRandom(curated, count),
+    photos: choice.photos,
+    scored: choice.scored,
+    skippedNarrow: skippedNarrow.size,
     styleWord,
     query: keyword,
     source: "curated",
@@ -296,13 +351,19 @@ function mentioning(photos: Photo[], keyword: string): Photo[] {
 // raw request. We remember the filtered list itself for a day instead.
 const getFilteredSearch = unstable_cache(
   fetchFilteredSearch,
-  ["pexels-search-filtered-pages", "provider-id", PHOTO_BLOCKLIST.join("|")],
+  [
+    "pexels-search-filtered-pages",
+    "provider-id",
+    // Cached photos need a width and a photographer id for the stock score.
+    "width-photographer-id",
+    PHOTO_BLOCKLIST.join("|"),
+  ],
   { revalidate: ONE_DAY_SECONDS },
 );
 
 const getCuratedPage = unstable_cache(
   fetchCuratedPage,
-  ["pexels-curated-page", "provider-id"],
+  ["pexels-curated-page", "provider-id", "width-photographer-id"],
   { revalidate: ONE_DAY_SECONDS },
 );
 
@@ -343,6 +404,32 @@ function unused(photos: Photo[], usedIds: Set<string>): Photo[] {
   return photos.filter((photo) => !usedIds.has(photo.id));
 }
 
+/** Drop photos already used, and photos that are too small to fill the screen. */
+function available(
+  photos: Photo[],
+  usedIds: Set<string>,
+  skippedNarrow: Set<string>,
+): Photo[] {
+  const wide: Photo[] = [];
+
+  for (const photo of unused(photos, usedIds)) {
+    if (!isWideEnough(photo)) {
+      skippedNarrow.add(photo.id);
+      continue;
+    }
+    wide.push(photo);
+  }
+
+  return wide;
+}
+
+function isWideEnough(photo: Photo): boolean {
+  const width = photo.width ?? 0;
+  // A photo remembered before we stored width has no number. Keep it.
+  if (!(width > 0)) return true;
+  return width >= MIN_PHOTO_WIDTH;
+}
+
 /**
  * Pexels and Unsplash answer the same words. Keep one copy of each photo,
  * then drop anything on the blocklist. The no-repeat rule and the random
@@ -375,6 +462,209 @@ function addNew(pool: Photo[], photos: Photo[]) {
     seen.add(photo.id);
     pool.push(photo);
   }
+}
+
+/**
+ * How many distinct photos each photographer has in search lists this
+ * process has already read. Those lists are cached for a day. The count
+ * lives on globalThis so editing a weight (which reloads this file) does
+ * not forget photographers we had already seen. A restart starts over.
+ * Each photo is recorded once, the first time a list containing it is read.
+ */
+type PhotographerTally = {
+  seenPhotoIds: Set<string>;
+  counts: Map<string, number>;
+};
+
+function photographerTally(): PhotographerTally {
+  const holder = globalThis as typeof globalThis & {
+    __lyricPhotographerTally?: PhotographerTally;
+  };
+
+  if (!holder.__lyricPhotographerTally) {
+    holder.__lyricPhotographerTally = {
+      seenPhotoIds: new Set(),
+      counts: new Map(),
+    };
+  }
+
+  return holder.__lyricPhotographerTally;
+}
+
+function rememberPhotographers(photos: Photo[]) {
+  const tally = photographerTally();
+
+  for (const photo of photos) {
+    const photographerId = photo.photographerId;
+    if (!photographerId || tally.seenPhotoIds.has(photo.id)) continue;
+    tally.seenPhotoIds.add(photo.id);
+    tally.counts.set(photographerId, (tally.counts.get(photographerId) ?? 0) + 1);
+  }
+}
+
+function photographerCount(photographerId: string | undefined): number {
+  if (!photographerId) return 0;
+  return photographerTally().counts.get(photographerId) ?? 0;
+}
+
+/** The highest number of cached photos any photographer has. */
+function mostFrequentPhotographerCount(): number {
+  let max = 0;
+  for (const count of photographerTally().counts.values()) {
+    if (count > max) max = count;
+  }
+  return max;
+}
+
+type PhotoScore = {
+  photo: Photo;
+  score: number;
+  reasons: string[];
+  lightness: number | null;
+  saturation: number | null;
+  photographerCount: number;
+};
+
+/**
+ * Higher means more like stock. Bright and saturated average colors,
+ * stock words in the description, the same words in the page-url slug,
+ * and a photographer who shows up more than anyone else all add points.
+ */
+function scorePhoto(photo: Photo): PhotoScore {
+  const reasons: string[] = [];
+  let score = 0;
+
+  const color = colorBrightnessAndSaturation(photo.avgColor);
+  const lightness = color?.brightness ?? null;
+  const saturation = color?.saturation ?? null;
+
+  if (lightness != null && lightness >= BRIGHT_LIGHTNESS) {
+    score += BRIGHT_POINTS;
+    reasons.push(
+      `very bright, brightness ${lightness.toFixed(2)} (+${BRIGHT_POINTS})`,
+    );
+  }
+
+  if (saturation != null && saturation >= SATURATED_LEVEL) {
+    score += SATURATED_POINTS;
+    reasons.push(
+      `very saturated, saturation ${saturation.toFixed(2)} (+${SATURATED_POINTS})`,
+    );
+  }
+
+  for (const word of stockWordsIn(photo.alt)) {
+    score += STOCK_WORD_POINTS;
+    reasons.push(`description: ${word} (+${STOCK_WORD_POINTS})`);
+  }
+
+  for (const word of stockWordsIn(slugText(photo.pageUrl))) {
+    score += STOCK_WORD_POINTS;
+    reasons.push(`url: ${word} (+${STOCK_WORD_POINTS})`);
+  }
+
+  const count = photographerCount(photo.photographerId);
+  const most = mostFrequentPhotographerCount();
+  if (
+    photo.photographerId &&
+    count >= FREQUENT_PHOTOGRAPHER_MIN_COUNT &&
+    count === most
+  ) {
+    score += FREQUENT_PHOTOGRAPHER_POINTS;
+    reasons.push(
+      `most frequent photographer, ${count} cached photos (+${FREQUENT_PHOTOGRAPHER_POINTS})`,
+    );
+  }
+
+  return {
+    photo: { ...photo, stockScore: score, stockReasons: reasons },
+    score,
+    reasons,
+    lightness,
+    saturation,
+    photographerCount: count,
+  };
+}
+
+/**
+ * Words in the photo's page address.
+ * Pexels slugs look like "brown-rocks-during-golden-hour-2014422".
+ * The trailing number is the photo id, not a word.
+ */
+function slugText(pageUrl: string): string {
+  try {
+    const url = new URL(pageUrl);
+    const parts = url.pathname.split("/").filter(Boolean);
+    const segment = parts[parts.length - 1] ?? "";
+    const tokens = segment.split("-").filter(Boolean);
+    if (tokens.length > 0 && /^\d+$/.test(tokens[tokens.length - 1])) {
+      tokens.pop();
+    }
+    return tokens.join(" ");
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Take every photo in the lowest score, then the next score, until there
+ * are enough. When a score has more photos than we still need, choose
+ * those at random. Shuffle the chosen set so playback order is not score order.
+ */
+function chooseLowest(
+  photos: Photo[],
+  count: number,
+): { photos: Photo[]; scored: ScoredPhoto[] } {
+  const breakdowns = photos.map((photo) => scorePhoto(photo));
+  const picked = pickFromLowest(breakdowns, count);
+  const pickedIds = new Set(picked.map((photo) => photo.id));
+
+  const scored = breakdowns
+    .map((item) => ({
+      photo: item.photo,
+      score: item.score,
+      reasons: item.reasons,
+      lightness: item.lightness,
+      saturation: item.saturation,
+      photographerCount: item.photographerCount,
+      chosen: pickedIds.has(item.photo.id),
+    }))
+    .sort(
+      (a, b) => a.score - b.score || a.photo.id.localeCompare(b.photo.id),
+    );
+
+  const byId = new Map(scored.map((item) => [item.photo.id, item.photo]));
+
+  return {
+    photos: picked.map((photo) => byId.get(photo.id) ?? photo),
+    scored,
+  };
+}
+
+function pickFromLowest(items: PhotoScore[], count: number): Photo[] {
+  if (count <= 0 || items.length === 0) return [];
+
+  const levels = [...new Set(items.map((item) => item.score))].sort(
+    (a, b) => a - b,
+  );
+  const chosen: Photo[] = [];
+  let remaining = count;
+
+  for (const level of levels) {
+    if (remaining <= 0) break;
+    const group = items
+      .filter((item) => item.score === level)
+      .map((item) => item.photo);
+
+    if (group.length <= remaining) {
+      chosen.push(...group);
+      remaining -= group.length;
+    } else {
+      chosen.push(...pickRandom(group, remaining));
+      remaining = 0;
+    }
+  }
+
+  return pickRandom(chosen, chosen.length);
 }
 
 /** Shuffle a copy, then keep up to `count` photos. */
@@ -650,6 +940,10 @@ function toPhoto(photo: PexelsPhoto): Photo | null {
   if (typeof photo.id !== "number" || !photo.src?.large2x) return null;
 
   const pageUrl = photo.url || "";
+  const photographerId =
+    typeof photo.photographer_id === "number"
+      ? `pexels:${photo.photographer_id}`
+      : "";
 
   return {
     id: `pexels:${photo.id}`,
@@ -657,6 +951,10 @@ function toPhoto(photo: PexelsPhoto): Photo | null {
     src: photo.src.large2x,
     alt: photo.alt?.trim() || "Photo",
     avgColor: photo.avg_color || "#111111",
+    ...(typeof photo.width === "number" && photo.width > 0
+      ? { width: photo.width }
+      : {}),
+    ...(photographerId ? { photographerId } : {}),
     photographer: photo.photographer || "Unknown photographer",
     photographerUrl: photo.photographer_url || "",
     pageUrl,

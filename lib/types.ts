@@ -20,6 +20,12 @@ export type Photo = {
   alt: string;
   // A placeholder color while the image loads.
   avgColor: string;
+  // Original width in pixels. Used to skip photos that are too small.
+  // Missing on photos remembered before this was stored.
+  width?: number;
+  // "pexels:123" or "unsplash:abc". Used to notice photographers who
+  // show up in a lot of search results. Not shown in the credits.
+  photographerId?: string;
   photographer: string;
   photographerUrl: string;
   // The photo's page. Unsplash links include the referral parameters.
@@ -30,6 +36,11 @@ export type Photo = {
   // The access key is not included. The server adds it the first time
   // this photo is shown.
   downloadLocation?: string;
+  // How stock-looking this photo scored when it was chosen. Lower is
+  // better. Set only on photos that made it into a scene. The /debug
+  // page shows this with stockReasons so the weights can be tuned.
+  stockScore?: number;
+  stockReasons?: string[];
 };
 
 /**

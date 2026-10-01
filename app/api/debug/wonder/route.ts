@@ -24,6 +24,8 @@ export async function GET() {
       query: choice.query,
       source: choice.source,
       photos: choice.photos,
+      scored: choice.scored,
+      skippedNarrow: choice.skippedNarrow,
       blocklist: PHOTO_BLOCKLIST,
       styleWords: STYLE_WORDS,
     });

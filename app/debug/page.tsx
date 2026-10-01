@@ -1,6 +1,16 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import {
+  BRIGHT_LIGHTNESS,
+  BRIGHT_POINTS,
+  FREQUENT_PHOTOGRAPHER_MIN_COUNT,
+  FREQUENT_PHOTOGRAPHER_POINTS,
+  MIN_PHOTO_WIDTH,
+  SATURATED_LEVEL,
+  SATURATED_POINTS,
+  STOCK_WORD_POINTS,
+} from "@/lib/stock-words";
 import type { Photo, Scene, SongPackage } from "@/lib/types";
 
 /**
@@ -35,12 +45,24 @@ export default function DebugPage() {
   );
 }
 
+type ScoredView = {
+  photo: Photo;
+  score: number;
+  reasons: string[];
+  lightness: number | null;
+  saturation: number | null;
+  photographerCount: number;
+  chosen: boolean;
+};
+
 type WonderResult = {
   keyword: string;
   styleWord: string;
   query: string;
   source: "style" | "keyword" | "curated";
   photos: Photo[];
+  scored: ScoredView[];
+  skippedNarrow: number;
   blocklist: string[];
   styleWords: string[];
 };
@@ -89,12 +111,21 @@ function WonderCompare() {
     <section className="space-y-4">
       <h2 className="text-lg font-medium">Photo search: “wonder”</h2>
       <p className="text-sm opacity-70">
-        This is a sample of the first scene's search. The search adds one
-        style word, skips descriptions on the blocklist, and picks photos at
-        random. A long lyric line gets a new photo each time the picture
-        changes, instead of playing the same few again. Refresh this page for
-        a new pick.
-        The lists live in{" "}
+        This is a sample of the first scene&apos;s search. The search adds one
+        style word and skips descriptions on the blocklist. Photos under{" "}
+        {MIN_PHOTO_WIDTH}px wide are skipped. The rest are scored, and the
+        lowest scores are picked at random. A long lyric line gets a new photo
+        each time the picture changes. Refresh this page for a new pick.
+      </p>
+      <p className="text-sm opacity-70">
+        Very bright (brightness at least {BRIGHT_LIGHTNESS}) adds {BRIGHT_POINTS}.
+        Very saturated (saturation at least {SATURATED_LEVEL}) adds{" "}
+        {SATURATED_POINTS}. Each stock word in the description or the url adds{" "}
+        {STOCK_WORD_POINTS}. The photographer with the most cached photos adds{" "}
+        {FREQUENT_PHOTOGRAPHER_POINTS}, once they have at least{" "}
+        {FREQUENT_PHOTOGRAPHER_MIN_COUNT}. Edit the numbers and the word list
+        in <span className="font-mono">lib/stock-words.ts</span>. Style words
+        and the blocklist live in{" "}
         <span className="font-mono">lib/style-words.ts</span> and{" "}
         <span className="font-mono">lib/photo-blocklist.ts</span>.
       </p>
@@ -110,6 +141,8 @@ function WonderCompare() {
             title={sourceLabel(result)}
             query={result.query}
             photos={result.photos}
+            scored={result.scored}
+            skippedNarrow={result.skippedNarrow}
           />
           <p className="text-sm opacity-70">
             Style words, in order: {result.styleWords.join(", ")}.
@@ -137,34 +170,61 @@ function PhotoColumn({
   title,
   query,
   photos,
+  scored,
+  skippedNarrow,
 }: {
   title: string;
   query: string;
   photos: Photo[];
+  scored: ScoredView[];
+  skippedNarrow: number;
 }) {
+  const picked = scored.filter((item) => item.chosen).length;
+  const shown = scored.length > 0 ? scored : photos.map(unscoredView);
+
   return (
     <div className="space-y-3">
       <div>
         <h3 className="font-medium">{title}</h3>
         <p className="text-sm opacity-70">
-          Search: “{query}” · {photos.length}{" "}
-          {photos.length === 1 ? "photo" : "photos"}
+          Search: “{query}” · {shown.length}{" "}
+          {shown.length === 1 ? "photo" : "photos"} scored · {picked} picked
+          {skippedNarrow > 0
+            ? ` · ${skippedNarrow} skipped under ${MIN_PHOTO_WIDTH}px`
+            : ""}
         </p>
+        <p className="text-sm opacity-70">Lowest scores first.</p>
       </div>
 
-      {photos.length === 0 ? (
+      {shown.length === 0 ? (
         <p className="text-sm">No photos came back.</p>
       ) : (
-        <ul className="grid gap-4 sm:grid-cols-3">
-          {photos.map((photo) => (
-            <li key={photo.id}>
+        <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {shown.map((item) => (
+            <li key={item.photo.id}>
               <figure className="space-y-1">
                 <PhotoThumb
-                  photo={photo}
+                  photo={item.photo}
                   className="aspect-[3/2] w-full rounded object-cover"
                   width={800}
                 />
-                <figcaption className="text-xs opacity-70">{photo.alt}</figcaption>
+                <figcaption className="space-y-1 text-xs">
+                  <p className="font-medium">
+                    Score {item.score}
+                    {item.chosen ? " · Picked" : ""}
+                  </p>
+                  {item.reasons.length === 0 ? (
+                    <p className="opacity-70">No stock points.</p>
+                  ) : (
+                    <ul className="space-y-0.5 opacity-80">
+                      {item.reasons.map((reason, index) => (
+                        <li key={`${reason}-${index}`}>{reason}</li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="opacity-60">{scoreFacts(item)}</p>
+                  <p className="opacity-70">{item.photo.alt}</p>
+                </figcaption>
               </figure>
             </li>
           ))}
@@ -172,6 +232,35 @@ function PhotoColumn({
       )}
     </div>
   );
+}
+
+function unscoredView(photo: Photo): ScoredView {
+  return {
+    photo,
+    score: photo.stockScore ?? 0,
+    reasons: photo.stockReasons ?? [],
+    lightness: null,
+    saturation: null,
+    photographerCount: 0,
+    chosen: true,
+  };
+}
+
+function scoreFacts(item: ScoredView): string {
+  const brightness =
+    item.lightness == null ? "no brightness" : `brightness ${item.lightness.toFixed(2)}`;
+  const saturation =
+    item.saturation == null
+      ? "no saturation"
+      : `saturation ${item.saturation.toFixed(2)}`;
+  const width =
+    item.photo.width && item.photo.width > 0 ? `${item.photo.width}px wide` : "width unknown";
+  const photographer =
+    item.photographerCount === 1
+      ? "1 cached photo from this photographer"
+      : `${item.photographerCount} cached photos from this photographer`;
+
+  return `${brightness} · ${saturation} · ${width} · ${photographer}`;
 }
 
 function SongLookup() {
@@ -317,15 +406,36 @@ function SceneRow({ scene }: { scene: Scene }) {
       ) : scene.photos.length === 0 ? (
         <p className="text-sm opacity-70">No photos for this word.</p>
       ) : (
-        <ul className="flex flex-wrap gap-2">
+        <ul className="flex flex-wrap gap-3">
           {scene.photos.map((photo, index) => (
-            <li key={`${scene.startMs}-${photo.id}-${index}`}>
+            <li key={`${scene.startMs}-${photo.id}-${index}`} className="max-w-40">
               <PhotoThumb photo={photo} />
+              <PhotoScore photo={photo} />
             </li>
           ))}
         </ul>
       )}
     </li>
+  );
+}
+
+function PhotoScore({ photo }: { photo: Photo }) {
+  if (photo.stockScore == null) return null;
+  const reasons = photo.stockReasons ?? [];
+
+  return (
+    <div className="mt-1 text-[11px] leading-snug">
+      <p className="font-medium">Score {photo.stockScore}</p>
+      {reasons.length === 0 ? (
+        <p className="opacity-60">No stock points.</p>
+      ) : (
+        <ul className="opacity-70">
+          {reasons.map((reason, index) => (
+            <li key={`${reason}-${index}`}>{reason}</li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -485,8 +595,26 @@ function isWonderResult(data: unknown): data is WonderResult {
       value.source === "keyword" ||
       value.source === "curated") &&
     Array.isArray(value.photos) &&
+    Array.isArray(value.scored) &&
+    value.scored.every(isScoredView) &&
+    typeof value.skippedNarrow === "number" &&
     Array.isArray(value.blocklist) &&
     Array.isArray(value.styleWords)
+  );
+}
+
+function isScoredView(value: unknown): value is ScoredView {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Partial<ScoredView>;
+  return (
+    typeof item.score === "number" &&
+    Array.isArray(item.reasons) &&
+    (item.lightness == null || typeof item.lightness === "number") &&
+    (item.saturation == null || typeof item.saturation === "number") &&
+    typeof item.photographerCount === "number" &&
+    typeof item.chosen === "boolean" &&
+    !!item.photo &&
+    typeof item.photo === "object"
   );
 }
 

@@ -45,6 +45,7 @@ type UnsplashPhoto = {
     download_location?: string;
   };
   user?: {
+    id?: string | null;
     name?: string | null;
     links?: { html?: string };
   };
@@ -111,7 +112,14 @@ export async function searchUnsplash(
 // so editing lib/photo-blocklist.ts takes effect on the next song.
 const getUnsplashSearch = unstable_cache(
   fetchUnsplashSearch,
-  ["unsplash-search", "landscape", "content-filter-high", "per-page-20"],
+  [
+    "unsplash-search",
+    "landscape",
+    "content-filter-high",
+    "per-page-20",
+    // Cached photos need a width and a photographer id for the stock score.
+    "width-photographer-id",
+  ],
   { revalidate: ONE_DAY_SECONDS },
 );
 
@@ -274,6 +282,7 @@ function toUnsplashPhoto(photo: UnsplashPhoto): Photo | null {
       .join(". ") || "Photo";
 
   const downloadLocation = photo.links?.download_location?.trim() || "";
+  const userId = photo.user?.id?.trim() || "";
 
   return {
     id: `unsplash:${photo.id}`,
@@ -281,6 +290,8 @@ function toUnsplashPhoto(photo: UnsplashPhoto): Photo | null {
     src,
     alt,
     avgColor: placeholderColor(photo.color),
+    ...(photo.width && photo.width > 0 ? { width: photo.width } : {}),
+    ...(userId ? { photographerId: `unsplash:${userId}` } : {}),
     photographer: photo.user?.name?.trim() || "Unknown photographer",
     photographerUrl: unsplashReferralUrl(photo.user?.links?.html || ""),
     pageUrl: unsplashReferralUrl(photo.links?.html || ""),
