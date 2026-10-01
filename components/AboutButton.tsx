@@ -80,12 +80,25 @@ function AboutDialog({ onClose }: { onClose: () => void }) {
       </h2>
       <div className="about-dialog-body">
         <p>
-          [Why you made this project, and what you hope people feel when they
-          watch a song play out.]
+          What happens when you pair music with images and videos that were
+          never meant to be together?
+        </p>
+        <p>This is an experiment in finding out.</p>
+        <p>
+          Choose a song and press play. As the music starts, the lyrics are
+          read line by line, and each line is paired with a photograph or
+          video clip. The images change on the beat, so the cuts land with
+          the rhythm of the song, filling the screen like scenes from a film.
         </p>
         <p>
-          [How it works in a sentence or two, and anything you want to credit
-          or thank.]
+          None of these images were made for this music. They come from
+          different places, different moments, different stories. Put
+          together, the images and music have new meaning.
+        </p>
+        <p>
+          Sometimes the match is obvious. Sometimes it&apos;s strange.
+          Sometimes it&apos;s just wrong. Either way, you&apos;re watching
+          something that didn&apos;t exist before.
         </p>
       </div>
       <hr className="about-dialog-rule" />
