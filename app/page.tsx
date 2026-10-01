@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
 import { AboutButton } from "@/components/AboutButton";
 import { Credits } from "@/components/Credits";
 import { NoLyricsMessage, NO_LYRICS_INTRO_MS } from "@/components/NoLyricsMessage";
@@ -546,6 +554,7 @@ function VisualModeToggle({
         onChange(next);
       }}
       isDisabled={(id) => photosOnly && id !== "photos"}
+      disabledHint={photosOnly ? "Only available with lyrics" : undefined}
     />
   );
 }
@@ -585,6 +594,7 @@ function SegmentedControl<T extends string>({
   value,
   onChange,
   isDisabled,
+  disabledHint,
 }: {
   label: string;
   className: string;
@@ -592,6 +602,8 @@ function SegmentedControl<T extends string>({
   value: T;
   onChange: (id: T) => void;
   isDisabled?: (id: T) => boolean;
+  /** Shown when hovering an option that `isDisabled` turns off. */
+  disabledHint?: string;
 }) {
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
 
@@ -633,9 +645,9 @@ function SegmentedControl<T extends string>({
       {options.map((option, index) => {
         const selected = option.id === value;
         const disabled = isDisabled?.(option.id) ?? false;
-        return (
+        const hint = disabled ? disabledHint : undefined;
+        const button = (
           <button
-            key={option.id}
             ref={(node) => {
               buttons.current[index] = node;
             }}
@@ -643,6 +655,7 @@ function SegmentedControl<T extends string>({
             role="radio"
             aria-checked={selected}
             aria-disabled={disabled}
+            aria-description={hint}
             disabled={disabled}
             tabIndex={selected ? 0 : -1}
             className={`toggle-option${selected ? " is-selected" : ""}`}
@@ -652,8 +665,105 @@ function SegmentedControl<T extends string>({
             <span>{option.label}</span>
           </button>
         );
+        if (!hint) {
+          return (
+            <span key={option.id} className="toggle-option-slot">
+              {button}
+            </span>
+          );
+        }
+        return (
+          <DisabledOptionHint key={option.id} hint={hint}>
+            {button}
+          </DisabledOptionHint>
+        );
       })}
     </div>
+  );
+}
+
+/**
+ * Disabled buttons do not receive hover, so the hint sits on a wrapper.
+ * Drawn on the page body so the control row's clipping cannot cut it off.
+ */
+function DisabledOptionHint({
+  hint,
+  children,
+}: {
+  hint: string;
+  children: ReactNode;
+}) {
+  const wrapRef = useRef<HTMLSpanElement>(null);
+  const hintRef = useRef<HTMLSpanElement>(null);
+  const [open, setOpen] = useState(false);
+  const [place, setPlace] = useState({ top: 0, left: 0 });
+
+  useEffect(() => {
+    if (!open) return;
+    let frame = 0;
+    const tick = () => {
+      const el = wrapRef.current;
+      if (!el || !el.matches(":hover")) {
+        setOpen(false);
+        return;
+      }
+      const rect = el.getBoundingClientRect();
+      const hintWidth = hintRef.current?.offsetWidth ?? 0;
+      const margin = 8;
+      const half = hintWidth / 2;
+      const center = rect.left + rect.width / 2;
+      const left =
+        hintWidth > 0
+          ? Math.min(
+              Math.max(center, margin + half),
+              window.innerWidth - margin - half,
+            )
+          : center;
+      const top = rect.bottom + 8;
+      setPlace((prev) => {
+        if (
+          Math.abs(prev.top - top) < 0.5 &&
+          Math.abs(prev.left - left) < 0.5
+        ) {
+          return prev;
+        }
+        return { top, left };
+      });
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
+
+  return (
+    <span
+      ref={wrapRef}
+      className="toggle-option-slot"
+      onMouseEnter={() => {
+        const rect = wrapRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        setPlace({
+          top: rect.bottom + 8,
+          left: rect.left + rect.width / 2,
+        });
+        setOpen(true);
+      }}
+      onMouseLeave={() => setOpen(false)}
+    >
+      {children}
+      {open &&
+        createPortal(
+          <span
+            ref={hintRef}
+            role="tooltip"
+            className="toggle-hint"
+            style={{ top: place.top, left: place.left }}
+          >
+            {hint}
+          </span>,
+          document.body,
+        )}
+    </span>
   );
 }
 
