@@ -5,14 +5,20 @@
  * to avoid pictures of written words (Scrabble tiles, neon signs, quotes)
  * and obvious stock setups (someone smiling at a laptop in an office).
  *
+ * Product shots are skipped too. A short lyric word is often part of the
+ * object name — "hard" inside "hard drive" — so the photo looks like a
+ * match for the line and still gets thrown out.
+ *
  * Edit this list freely. You do not need to change any other file.
  * After you save, the next photo lookup uses the new list.
  *
  * Matching rules:
  * - Capital letters do not matter. "Sign" matches "sign".
  * - A single word must be the whole word. "sign" does not match "design".
+ *   Plurals are listed on their own. "product" does not match "products".
  * - A phrase must appear as written. "neon sign" matches "a neon sign at
- *   night", but the word "neon" on its own does not.
+ *   night", but the word "neon" on its own does not. Hyphens and
+ *   underscores count as spaces, so "hard drive" matches "hard-drive".
  *
  * "nothing phone" is the phone brand. A search for the lyric word
  * "nothing" also returns that phone described only as a smartphone
@@ -38,6 +44,42 @@ export const PHOTO_BLOCKLIST = [
   "laptop",
   "posing",
   "nothing phone",
+  // Product photography, including objects whose name contains a lyric word.
+  "product",
+  "products",
+  "product photography",
+  "product photo",
+  "product shot",
+  "product image",
+  "packshot",
+  "packshots",
+  "pack shot",
+  "merchandise",
+  "ecommerce",
+  "e commerce",
+  "catalog",
+  "catalogue",
+  "mockup",
+  "mockups",
+  "gadget",
+  "gadgets",
+  "knolling",
+  "white background",
+  "hard drive",
+  "hard disk",
+  "hard disc",
+  "harddrive",
+  "harddisk",
+  "solid state drive",
+  "flash drive",
+  "thumb drive",
+  "usb drive",
+  "pen drive",
+  "memory card",
+  "graphics card",
+  "hdd",
+  "ssd",
+  "nvme",
 ];
 
 // Descriptions of the Nothing Phone that never say the brand name.
@@ -49,7 +91,8 @@ const NOTHING_PHONE_WORDS = ["phone", "smartphone", "iphone", "cellphone"];
  * Pass the search words when you have them, so "nothing" can skip phones.
  */
 export function altIsBlocked(alt: string, query = ""): boolean {
-  const text = alt.toLowerCase();
+  // Hyphens are spaces, so "hard-drive" is the phrase "hard drive".
+  const text = alt.toLowerCase().replace(/[-_]+/g, " ");
   // Split on anything that is not a letter or number, so "sign." and
   // "sign," still count as the word "sign".
   const words = wordsIn(text);
