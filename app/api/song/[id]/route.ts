@@ -10,9 +10,9 @@ import type { Scene, SongPackage, SpotifyLookup } from "@/lib/types";
  * GET /api/song/908604612
  *
  * Builds the song package for one Deezer track id:
- * Deezer details → Spotify id → lyrics → picture-words → Pexels photos,
- * then one Pexels video per picture-word. If a video search fails, the
- * photos for that song are kept.
+ * Deezer details → Spotify id → lyrics → picture-words → photos from
+ * Pexels and Unsplash, then one Pexels video per picture-word. If a video
+ * search fails, the photos for that song are kept.
  *
  * Fallbacks (plan section 5, phase 7):
  * - No lyrics, or the lyrics service fails: curated photos, and the page

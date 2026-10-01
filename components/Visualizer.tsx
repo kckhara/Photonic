@@ -162,7 +162,7 @@ export function Visualizer({
 
   // Which photo the loop last chose. Undefined until the first choice,
   // so "nothing yet" is different from "no photo at this moment".
-  const chosenIdRef = useRef<number | null | undefined>(undefined);
+  const chosenIdRef = useRef<string | null | undefined>(undefined);
   const skipPreviewReset = useRef(true);
   const skipModeReset = useRef(true);
 
@@ -202,6 +202,7 @@ export function Visualizer({
 
   useEffect(() => {
     onShownRef.current?.(shownPhotos);
+    for (const photo of shownPhotos) rememberUnsplashDownload(photo);
   }, [shownPhotos]);
 
   useEffect(() => {
@@ -1295,6 +1296,30 @@ function FadePhoto({
   );
 }
 
+// Photos we've already reported to Unsplash. One ping per photo per visit.
+const unsplashDownloadsSent = new Set<string>();
+
+/**
+ * The first time an Unsplash photo is on screen, ask our server to ping
+ * that photo's download endpoint. Later appearances of the same photo
+ * do not ping again. A failure here must not interrupt the picture.
+ */
+function rememberUnsplashDownload(photo: Photo) {
+  if (photo.provider !== "unsplash" || !photo.downloadLocation) return;
+  if (unsplashDownloadsSent.has(photo.id)) return;
+  unsplashDownloadsSent.add(photo.id);
+
+  void fetch("/api/unsplash/download", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ downloadLocation: photo.downloadLocation }),
+    keepalive: true,
+  }).catch(() => {
+    // The photo is already up. Losing the count is better than retrying
+    // in a loop while the song plays.
+  });
+}
+
 /** Add a photo to the "actually shown" list the first time it appears. */
 function rememberPhoto(shown: Photo[], photo: Photo): Photo[] {
   if (shown.some((item) => item.id === photo.id)) return shown;
@@ -1373,13 +1398,23 @@ function warmPhotos(scenes: Scene[], positionMs: number, bpm: number) {
 }
 
 /**
- * A narrower copy of a Pexels photo. large2x is about 1880 pixels wide
- * and is often still downloading when the beat says to change pictures.
- * Around 1280 pixels wide is enough to fill the screen while that arrives.
+ * A narrower copy of a photo, for the fade-in while the full file arrives.
+ * A Pexels large2x is about 1880 pixels wide. An Unsplash photo is about
+ * 1920. Around 1280 pixels wide is enough to fill the screen meanwhile.
  */
 function quickerUrl(src: string): string {
   try {
     const url = new URL(src);
+    // Unsplash files stay on their CDN. Only the width changes, so the
+    // ixid they use to count the view is left in place.
+    if (url.hostname === "images.unsplash.com") {
+      const width = Number(url.searchParams.get("w"));
+      if (Number.isFinite(width) && width > 0 && width <= 1280) return src;
+      url.searchParams.set("w", "1280");
+      url.searchParams.set("fit", "max");
+      return url.toString();
+    }
+
     const width = Number(url.searchParams.get("w"));
     const dpr = Number(url.searchParams.get("dpr") || "1");
     const pixels =

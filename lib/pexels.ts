@@ -8,6 +8,11 @@
  * use up the Pexels limit (200 requests an hour). Which photos are chosen
  * is decided when the song is built, so that choice is not cached.
  *
+ * The same search is also sent to Unsplash (lib/unsplash.ts), at the same
+ * time. The two lists are combined, duplicates removed, then the blocklist,
+ * the no-repeat rule, and the random pick run on what's left. If Unsplash
+ * fails or hits its limit, that search continues with the Pexels photos.
+ *
  * For each scene:
  * - Add the next style word from lib/style-words.ts
  *   ("wonder" becomes "wonder moody", then the next scene gets "dusk", and so on).
@@ -35,6 +40,7 @@ import {
 } from "@/lib/photo-blocklist";
 import { styleWordAt } from "@/lib/style-words";
 import { photoSlotCount } from "@/lib/tempo";
+import { searchUnsplash } from "@/lib/unsplash";
 import type { Photo, Scene, VideoClip } from "@/lib/types";
 
 const ONE_DAY_SECONDS = 86400;
@@ -100,6 +106,9 @@ type PhotoSearchGate = {
  */
 function photoSearchGate(): PhotoSearchGate {
   let busy = false;
+  // After Unsplash fails or hits its limit, later scenes skip it.
+  // Pexels searches in this song keep going.
+  let unsplashOff = false;
 
   async function guard(load: () => Promise<Photo[]>): Promise<Photo[]> {
     if (busy) return [];
@@ -113,9 +122,25 @@ function photoSearchGate(): PhotoSearchGate {
     }
   }
 
+  async function searchBoth(query: string, page: number): Promise<Photo[]> {
+    const unsplash = unsplashOff
+      ? Promise.resolve([] as Photo[])
+      : searchUnsplash(query, page).then((result) => {
+          if (result.skipped) unsplashOff = true;
+          return result.photos;
+        });
+
+    const [pexels, fromUnsplash] = await Promise.all([
+      guard(() => getFilteredSearch(query, page)),
+      unsplash,
+    ]);
+
+    return combineSearchPhotos(query, [pexels, fromUnsplash]);
+  }
+
   return {
     search: (query, page) =>
-      query ? guard(() => getFilteredSearch(query, page)) : Promise.resolve([]),
+      query ? searchBoth(query, page) : Promise.resolve([]),
     curated: (page) => guard(() => getCuratedPage(page)),
     wasBusy: () => busy,
   };
@@ -131,7 +156,7 @@ export async function attachPhotos(
   scenes: Scene[],
   bpm: number,
 ): Promise<Scene[]> {
-  const usedIds = new Set<number>();
+  const usedIds = new Set<string>();
   // One busy response from Pexels stops later searches in this song.
   // Scenes that already have photos are kept.
   const gate = photoSearchGate();
@@ -175,7 +200,7 @@ export async function attachPhotos(
 export async function chooseScenePhotos(
   keyword: string,
   sceneIndex: number,
-  usedIds: Set<number>,
+  usedIds: Set<string>,
   needed = 3,
   gate: PhotoSearchGate = photoSearchGate(),
 ): Promise<ScenePhotoChoice> {
@@ -265,17 +290,19 @@ function mentioning(photos: Photo[], keyword: string): Photo[] {
 
 // The blocklist is part of the cache name. Editing lib/photo-blocklist.ts
 // starts a fresh lookup instead of reusing yesterday's photos.
+// "provider-id" drops photos remembered before each one was tagged
+// pexels or unsplash.
 // The key sits in the Authorization header, so Next.js will not keep the
 // raw request. We remember the filtered list itself for a day instead.
 const getFilteredSearch = unstable_cache(
   fetchFilteredSearch,
-  ["pexels-search-filtered-pages", PHOTO_BLOCKLIST.join("|")],
+  ["pexels-search-filtered-pages", "provider-id", PHOTO_BLOCKLIST.join("|")],
   { revalidate: ONE_DAY_SECONDS },
 );
 
 const getCuratedPage = unstable_cache(
   fetchCuratedPage,
-  ["pexels-curated-page"],
+  ["pexels-curated-page", "provider-id"],
   { revalidate: ONE_DAY_SECONDS },
 );
 
@@ -291,7 +318,7 @@ async function fetchFilteredSearch(
     page: String(page),
   });
 
-  const seen = new Set<number>();
+  const seen = new Set<string>();
   const kept: Photo[] = [];
 
   for (const photo of photos) {
@@ -312,8 +339,32 @@ async function fetchCuratedPage(page: number): Promise<Photo[]> {
   return photos.slice(0, CURATED_PHOTO_COUNT);
 }
 
-function unused(photos: Photo[], usedIds: Set<number>): Photo[] {
+function unused(photos: Photo[], usedIds: Set<string>): Photo[] {
   return photos.filter((photo) => !usedIds.has(photo.id));
+}
+
+/**
+ * Pexels and Unsplash answer the same words. Keep one copy of each photo,
+ * then drop anything on the blocklist. The no-repeat rule and the random
+ * pick run on this list afterwards.
+ */
+function combineSearchPhotos(query: string, groups: Photo[][]): Photo[] {
+  const seenIds = new Set<string>();
+  const seenSrc = new Set<string>();
+  const combined: Photo[] = [];
+
+  for (const group of groups) {
+    for (const photo of group) {
+      if (seenIds.has(photo.id)) continue;
+      if (photo.src && seenSrc.has(photo.src)) continue;
+      seenIds.add(photo.id);
+      if (photo.src) seenSrc.add(photo.src);
+      if (altIsBlocked(photo.alt, query)) continue;
+      combined.push(photo);
+    }
+  }
+
+  return combined;
 }
 
 /** Add photos that are not already in the list. */
@@ -598,13 +649,17 @@ function isLandscapeMp4(file: PexelsVideoFile): boolean {
 function toPhoto(photo: PexelsPhoto): Photo | null {
   if (typeof photo.id !== "number" || !photo.src?.large2x) return null;
 
+  const pageUrl = photo.url || "";
+
   return {
-    id: photo.id,
+    id: `pexels:${photo.id}`,
+    provider: "pexels",
     src: photo.src.large2x,
     alt: photo.alt?.trim() || "Photo",
     avgColor: photo.avg_color || "#111111",
     photographer: photo.photographer || "Unknown photographer",
     photographerUrl: photo.photographer_url || "",
-    pexelsUrl: photo.url || "",
+    pageUrl,
+    pexelsUrl: pageUrl,
   };
 }

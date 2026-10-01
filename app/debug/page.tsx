@@ -350,10 +350,11 @@ function PhotoThumb({
     />
   );
 
-  if (!photo.pexelsUrl) return image;
+  const href = photo.pageUrl || photo.pexelsUrl;
+  if (!href) return image;
 
   return (
-    <a href={photo.pexelsUrl} target="_blank" rel="noopener noreferrer">
+    <a href={href} target="_blank" rel="noopener noreferrer">
       {image}
     </a>
   );
@@ -449,11 +450,19 @@ function formatTime(ms: number): string {
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
-// Ask Pexels' image host for a small crop so the debug page doesn't download
+// Ask the image host for a small crop so the debug page doesn't download
 // the full-size photo for every thumbnail.
 function thumbnailUrl(src: string, width: number): string {
   try {
     const url = new URL(src);
+    if (url.hostname === "images.unsplash.com") {
+      url.searchParams.set("w", String(width));
+      url.searchParams.set("h", String(Math.round(width * 0.625)));
+      url.searchParams.set("fit", "crop");
+      url.searchParams.set("q", "70");
+      return url.toString();
+    }
+
     url.searchParams.set("auto", "compress");
     url.searchParams.set("cs", "tinysrgb");
     url.searchParams.set("w", String(width));

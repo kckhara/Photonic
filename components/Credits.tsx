@@ -1,6 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { unsplashHomeUrl } from "@/lib/unsplash-links";
 import type { Photo, SongPackage, VideoClip } from "@/lib/types";
 
 /**
@@ -8,11 +9,15 @@ import type { Photo, SongPackage, VideoClip } from "@/lib/types";
  *
  * Search stays above this panel, so another song can be chosen from here.
  * The panel names the musician, then every photo and clip that actually
- * played. A picture links to its Pexels page. The name under it links to
- * the photographer or videographer.
+ * played. A picture links to its page. Under it: "Photo by [name] on
+ * Pexels" or "Photo by [name] on Unsplash". A clip says "Footage by
+ * [name] on Pexels". Unsplash links include their referral parameters.
  *
  * A 30-second preview does not use this screen.
  */
+
+const PEXELS_URL = "https://www.pexels.com";
+const PEXELS_VIDEOS_URL = "https://www.pexels.com/videos/";
 
 const BUILT_WITH = [
   {
@@ -20,8 +25,9 @@ const BUILT_WITH = [
     href: "https://developer.spotify.com/documentation/embeds",
   },
   { label: "LRCLIB", href: "https://lrclib.net" },
-  { label: "Pexels", href: "https://www.pexels.com" },
-  { label: "Pexels Videos", href: "https://www.pexels.com/videos/" },
+  { label: "Pexels", href: PEXELS_URL },
+  { label: "Pexels Videos", href: PEXELS_VIDEOS_URL },
+  { label: "Unsplash", href: unsplashHomeUrl() },
 ] as const;
 
 export function Credits({
@@ -76,23 +82,31 @@ export function Credits({
             <ul className="credits-grid">
               {shown.map((photo) => {
                 const name = photo.photographer.trim() || "Unknown photographer";
+                const onUnsplash = photo.provider === "unsplash";
+                const sourceName = onUnsplash ? "Unsplash" : "Pexels";
+                const credit = `Photo by ${name} on ${sourceName}`;
                 return (
                   <li key={photo.id} className="credits-cell">
                     <OutboundLink
-                      href={photo.pexelsUrl}
+                      href={photo.pageUrl || photo.pexelsUrl}
                       className="credits-tile"
-                      label={`Photo by ${name} on Pexels`}
+                      label={credit}
                     >
                       {/* Plain img: these files are already on screen.
                           The grid only needs a linked thumbnail. */}
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={photo.src}
-                        alt={photo.alt.trim() || `Photo by ${name} on Pexels`}
+                        alt={photo.alt.trim() || credit}
                       />
                     </OutboundLink>
                     <p className="credits-caption">
+                      Photo by{" "}
                       <TextLink href={photo.photographerUrl.trim()}>{name}</TextLink>
+                      {" on "}
+                      <TextLink href={onUnsplash ? unsplashHomeUrl() : PEXELS_URL}>
+                        {sourceName}
+                      </TextLink>
                     </p>
                   </li>
                 );
@@ -125,7 +139,10 @@ export function Credits({
                       </span>
                     </OutboundLink>
                     <p className="credits-caption">
+                      Footage by{" "}
                       <TextLink href={clip.videographerUrl.trim()}>{name}</TextLink>
+                      {" on "}
+                      <TextLink href={PEXELS_VIDEOS_URL}>Pexels</TextLink>
                     </p>
                   </li>
                 );
@@ -167,7 +184,7 @@ function uniqueClips(videos: VideoClip[]): VideoClip[] {
 
 /** Same photo can be reported twice. Keep the first time it appeared. */
 function uniquePhotos(photos: Photo[]): Photo[] {
-  const seen = new Set<number>();
+  const seen = new Set<string>();
   const unique: Photo[] = [];
   for (const photo of photos) {
     if (seen.has(photo.id)) continue;

@@ -6,19 +6,30 @@
 // How the lyrics arrived, which decides how photos are timed.
 export type LyricsType = "synced" | "plain" | "none";
 
-// One photograph from Pexels. The browser uses this later for the visuals
-// and the credits screen. It does not include our API key.
+// Where a photograph came from. Credits and the download ping depend on this.
+export type PhotoProvider = "pexels" | "unsplash";
+
+// One photograph from Pexels or Unsplash. The browser uses this later for
+// the visuals and the credits screen. It does not include our API keys.
 export type Photo = {
-  id: number;
-  // Large image URL from Pexels.
+  // "pexels:123" or "unsplash:abc". The prefix keeps the two catalogs apart.
+  id: string;
+  provider: PhotoProvider;
+  // Large image URL. Unsplash files are loaded from Unsplash directly.
   src: string;
   alt: string;
-  // Pexels sends this. Use it as a placeholder color while the image loads.
+  // A placeholder color while the image loads.
   avgColor: string;
   photographer: string;
   photographerUrl: string;
-  // The photo's page on Pexels.
+  // The photo's page. Unsplash links include the referral parameters.
+  pageUrl: string;
+  // The photo's page on Pexels. Empty for an Unsplash photo; use pageUrl.
   pexelsUrl: string;
+  // Unsplash's download-tracking address. Set only for Unsplash photos.
+  // The access key is not included. The server adds it the first time
+  // this photo is shown.
+  downloadLocation?: string;
 };
 
 /**

@@ -84,7 +84,7 @@ export function curatedScenes(durationMs: number, photos: Photo[]): Scene[] {
  */
 export function beatOnlyScenes(scenes: Scene[], durationMs: number): Scene[] {
   const photos: Photo[] = [];
-  const seen = new Set<number>();
+  const seen = new Set<string>();
 
   for (const scene of scenes) {
     for (const photo of scene.photos) {
