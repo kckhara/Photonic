@@ -241,6 +241,12 @@ export function Visualizer({
     // After a couple of seconds we fade anyway, so a stuck download
     // can't pin the old clip on screen.
     let clipHoldSince = 0;
+    // Last time the on-screen clip's playhead actually moved. A file
+    // that sits on one frame would otherwise cover the photos for the
+    // rest of the line — the chorus just after 0:40 is where that shows up.
+    let clipMovedAt = 0;
+    let clipMovedTime = -1;
+    let clipMovedSrc = "";
 
     function videoAt(slot: 0 | 1): HTMLVideoElement | null {
       return slot === 0 ? videoRefA.current : videoRefB.current;
@@ -440,6 +446,28 @@ export function Visualizer({
       }
     }
 
+    // True when this file has been the one we want, the song is playing,
+    // and its frame hasn't moved for a couple of seconds.
+    function clipFrameStuck(
+      video: HTMLVideoElement,
+      src: string,
+      playing: boolean,
+    ): boolean {
+      if (!playing) {
+        clipMovedAt = 0;
+        return false;
+      }
+      const time = video.currentTime;
+      if (src !== clipMovedSrc || Math.abs(time - clipMovedTime) > 0.05) {
+        clipMovedSrc = src;
+        clipMovedTime = time;
+        clipMovedAt = performance.now();
+        return false;
+      }
+      if (clipMovedAt === 0) clipMovedAt = performance.now();
+      return performance.now() - clipMovedAt > 2000;
+    }
+
     function fileDuration(video: HTMLVideoElement | null): number | undefined {
       if (!video) return undefined;
       if (!Number.isFinite(video.duration) || !(video.duration > 0)) {
@@ -551,6 +579,12 @@ export function Visualizer({
 
         cancelSeek();
         syncPlayback(frontVideo, timeSec, playing);
+        if (clipFrameStuck(frontVideo, wanted.src, playing)) {
+          // Play was asked for, and the frame still hasn't moved.
+          // Drop the still and let photos keep changing.
+          hideClip(playing, true);
+          return false;
+        }
         pauseVideo(backVideo);
         // Same clip, still on this player. Opacity stays with React so a
         // dissolve that just started can finish. A swap onto the other
@@ -566,6 +600,11 @@ export function Visualizer({
       if (backVideo && bufferSrcRef.current[back] === wanted.src) {
         if (backVideo.readyState < 2) {
           showStandby(wanted);
+          // Not showable yet. Leave the photos free to keep changing.
+          // Pausing the clip that's up pins one frame on screen — the
+          // chorus around 0:40 is where that next file is often still
+          // downloading.
+          hideClip(playing, true);
           return false;
         }
 
@@ -616,17 +655,11 @@ export function Visualizer({
         return false;
       }
 
-      // Neither player has it yet. Download it on the hidden one and
-      // keep whatever is already on screen (a photo, or the last clip).
+      // Neither player has it yet. Download it on the hidden one.
+      // Don't freeze the clip that's already up on its last frame.
       showStandby(wanted);
       loadInto(back, wanted.src);
-      if (
-        frontVideo &&
-        bufferSrcRef.current[front] &&
-        bufferSrcRef.current[front] !== wanted.src
-      ) {
-        pauseVideo(frontVideo);
-      }
+      hideClip(playing, true);
       return false;
     }
 
@@ -640,27 +673,30 @@ export function Visualizer({
       const nextId = next?.photo.id ?? null;
 
       if (nextId !== chosenIdRef.current) {
-        chosenIdRef.current = nextId;
-
         if (!next) {
           // This stretch has nothing new. Keep whatever is already up
           // instead of clearing the screen to black.
+          chosenIdRef.current = null;
+        } else if (!photoIsReady(next.photo.src)) {
+          // Not on screen yet. Leave the current picture and try again
+          // next frame. Choosing it now would throw it away on the next
+          // beat — about a second and a half on a fast song — and the
+          // first photo of that line would stay up for the rest of it.
         } else {
+          chosenIdRef.current = nextId;
           const token = tokenRef.current + 1;
           tokenRef.current = token;
-          const ready = photoIsReady(next.photo.src);
           const incoming: Slide = {
             photo: next.photo,
             keyword: next.keyword,
             token,
             // Under a clip that's dissolving away, the photo is already
             // fully there. Only the clip fades. A normal photo change
-            // still fades in on its own. If the file isn't decoded yet,
-            // keep the old picture and fade when the pixels arrive.
-            visible: instant && ready,
+            // still fades in on its own.
+            visible: instant,
           };
 
-          if (instant && ready) {
+          if (instant) {
             setSlides((current) => {
               const settled = current.filter((slide) => slide.visible);
               const top = settled[settled.length - 1];
