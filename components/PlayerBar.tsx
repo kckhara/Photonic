@@ -616,6 +616,28 @@ function friendlyLoadMessage(error: unknown): string {
   return "We couldn’t load this song. Please try again.";
 }
 
+/**
+ * The trailing ellipsis on a loading line is three dots that appear
+ * one after another. Other notices stay as written.
+ */
+function ScreenNotice({ text }: { text: string }) {
+  const animated = text.endsWith("…");
+  const label = animated ? text.slice(0, -1) : text;
+
+  return (
+    <p className="screen-status" role="status">
+      {label}
+      {animated && (
+        <span className="screen-status-dots">
+          <span>.</span>
+          <span>.</span>
+          <span>.</span>
+        </span>
+      )}
+    </p>
+  );
+}
+
 function hasPhotos(song: SongPackage): boolean {
   return song.scenes.some((scene) => scene.photos.length > 0);
 }
@@ -637,9 +659,7 @@ function ScreenNotices({ notices }: { notices: string[] }) {
   return createPortal(
     <div className="pointer-events-none fixed inset-0 z-[8] flex flex-col items-center justify-center gap-3 px-8 text-center">
       {notices.map((text) => (
-        <p key={text} className="screen-status" role="status">
-          {text}
-        </p>
+        <ScreenNotice key={text} text={text} />
       ))}
     </div>,
     document.body,

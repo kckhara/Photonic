@@ -707,6 +707,63 @@ body {
   text-align: center;
 }
 
+/* The three dots after a loading line. They fade in one at a time,
+   hold, then start over together. Opacity keeps the line from shifting. */
+.screen-status-dots span {
+  opacity: 0;
+  animation: loading-dot 1.4s infinite;
+}
+
+.screen-status-dots span:nth-child(2) {
+  animation-name: loading-dot-2;
+}
+
+.screen-status-dots span:nth-child(3) {
+  animation-name: loading-dot-3;
+}
+
+@keyframes loading-dot {
+  0%,
+  12% {
+    opacity: 0;
+  }
+  22%,
+  82% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes loading-dot-2 {
+  0%,
+  28% {
+    opacity: 0;
+  }
+  38%,
+  82% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes loading-dot-3 {
+  0%,
+  44% {
+    opacity: 0;
+  }
+  54%,
+  82% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 .no-lyrics-overlay {
   pointer-events: none;
   position: fixed;
@@ -971,8 +1028,8 @@ body {
   }
 
   .home-intro-title {
-    width: 100%;
-    font-size: clamp(32px, 9vw, var(--font-size-homepage-header));
+    width: 80%;
+    font-size: clamp(25.6px, 7.2vw, var(--font-size-homepage-header));
   }
 
   .no-lyrics-overlay {
@@ -1006,6 +1063,11 @@ body {
   .title-card-zoom {
     animation: none;
     transform: scale(1.12);
+  }
+
+  .screen-status-dots span {
+    animation: none;
+    opacity: 1;
   }
 
   .home-search-slot,
