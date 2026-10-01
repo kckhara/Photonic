@@ -462,6 +462,11 @@ function HomeIntro() {
           Music and imagery,{" "}
           <span className="home-intro-title-quiet">matched by their words</span>
         </h1>
+        <p className="home-intro-text">
+          What happens when you pair music with images and videos
+          <br />
+          that were never meant to be together?
+        </p>
       </div>
     </div>
   );

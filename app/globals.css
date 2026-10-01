@@ -217,6 +217,19 @@ body {
   color: var(--color-text-secondary);
 }
 
+.home-intro-text {
+  width: var(--space-homepage-text-max);
+  max-width: 100%;
+  margin: var(--space-homepage-header-gap) 0 0;
+  text-align: center;
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-homepage-intro);
+  font-weight: var(--font-weight-homepage-intro);
+  line-height: var(--line-height-homepage-intro);
+  letter-spacing: var(--letter-spacing-homepage-intro);
+  color: var(--color-text-secondary);
+}
+
 .about-button {
   position: fixed;
   z-index: 30;
@@ -1029,7 +1042,7 @@ body {
 
   .home-intro-title {
     width: 80%;
-    font-size: clamp(25.6px, 7.2vw, var(--font-size-homepage-header));
+    font-size: clamp(28.16px, 7.92vw, var(--font-size-homepage-header));
   }
 
   .no-lyrics-overlay {

@@ -41,7 +41,7 @@
   --letter-spacing-credits-song: -0.01em;
 
   /* Homepage header */
-  --font-size-homepage-header: 38.4px;
+  --font-size-homepage-header: 42.24px;
   --font-weight-homepage-header: 400;
   --line-height-homepage-header: 1.02;
   --letter-spacing-homepage-header: -0.015em;
@@ -215,7 +215,7 @@
   --space-prompt-button-height: 40px;
   --space-prompt-button-padding-x: 24px;
   --space-homepage-header-gap: 16px;
-  --space-homepage-header-width: 310.4px;
+  --space-homepage-header-width: 341.44px;
   --space-homepage-text-max: 600px;
   --space-spinner: 48px;
   --space-spinner-gap: 20px;
