@@ -462,14 +462,6 @@ function HomeIntro() {
           Music and imagery,{" "}
           <span className="home-intro-title-quiet">matched by their words</span>
         </h1>
-        <p className="home-intro-text">
-          The lyrics find a photo or video that share keywords, with no one
-          <br />
-          choosing the pairing. Sometimes they harmonize, sometimes they
-          don&apos;t.
-          <br />
-          Either way, it&apos;s a show.
-        </p>
       </div>
     </div>
   );

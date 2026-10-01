@@ -217,17 +217,6 @@ body {
   color: var(--color-text-secondary);
 }
 
-.home-intro-text {
-  max-width: 100%;
-  margin: var(--space-homepage-header-gap) 0 0;
-  text-align: center;
-  font-size: var(--font-size-homepage-intro);
-  font-weight: var(--font-weight-homepage-intro);
-  line-height: var(--line-height-homepage-intro);
-  letter-spacing: var(--letter-spacing-homepage-intro);
-  color: var(--color-text-secondary);
-}
-
 .about-button {
   position: fixed;
   z-index: 30;
@@ -315,6 +304,7 @@ body {
 .about-contact {
   display: inline-flex;
   align-items: center;
+  max-width: 100%;
   gap: var(--space-about-contact-icon);
   color: var(--color-text-primary);
   font-size: var(--font-size-about-link);

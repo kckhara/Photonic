@@ -2,8 +2,7 @@
 
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 
-/** Drop the address in when the About copy is finished. */
-const CONTACT_EMAIL = "";
+const CONTACT_EMAIL = "oneinthemorningworks@gmail.com";
 
 /**
  * Info button fixed at the top right of every screen.
@@ -83,7 +82,6 @@ function AboutDialog({ onClose }: { onClose: () => void }) {
           What happens when you pair music with images and videos that were
           never meant to be together?
         </p>
-        <p>This is an experiment in finding out.</p>
         <p>
           Choose a song and press play. As the music starts, the lyrics are
           read line by line, and each line is paired with a photograph or
@@ -104,7 +102,7 @@ function AboutDialog({ onClose }: { onClose: () => void }) {
       <hr className="about-dialog-rule" />
       <a className="about-contact" href={`mailto:${CONTACT_EMAIL}`}>
         <EnvelopeIcon />
-        <span>Contact me</span>
+        <span>{CONTACT_EMAIL.replace("@", "@\u200b")}</span>
       </a>
       <button
         ref={closeRef}
