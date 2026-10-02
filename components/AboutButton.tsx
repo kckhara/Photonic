@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 
-const CONTACT_EMAIL = "oneinthemorningworks@gmail.com";
+const CONTACT_EMAIL = "oneamexperiments@gmail.com";
 
 /**
  * Info button fixed at the top right of every screen.
