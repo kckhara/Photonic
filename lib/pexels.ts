@@ -145,8 +145,8 @@ type PhotoSearchGate = {
 
 /**
  * Shared by every search in one song.
- * After Pexels says it is busy, later searches are skipped instead of
- * firing more requests and failing the whole song.
+ * After Pexels says it is busy, a search we have not saved comes back
+ * empty. One scene can go without a new photo; the song should not.
  */
 function photoSearchGate(): PhotoSearchGate {
   let busy = false;
@@ -155,7 +155,9 @@ function photoSearchGate(): PhotoSearchGate {
   let unsplashOff = false;
 
   async function guard(load: () => Promise<Photo[]>): Promise<Photo[]> {
-    if (busy) return [];
+    // A saved search still has to run: it answers from the day-long cache
+    // and does not ask Pexels again. A new search after a 429 fails, and
+    // that one scene is left without photos instead of failing the song.
     try {
       return await load();
     } catch (error) {

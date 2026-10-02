@@ -173,26 +173,24 @@ async function fillScenes(
   durationMs: number,
   bpm: number,
 ): Promise<Scene[]> {
-  const withPhotosPromise = photosForScenes(drafts, durationMs, bpm);
-  // Clips only need the picture-words, so they can load while the
-  // photos are chosen. A failure here must not throw away the photos.
-  const videosPromise = attachVideos(drafts).then(
-    (scenes) => scenes,
-    (error: unknown) => {
-      console.error("Video lookup failed", error);
-      return null;
-    },
-  );
-
-  const withPhotos = await withPhotosPromise;
-  const withVideos = await videosPromise;
+  const withPhotos = await photosForScenes(drafts, durationMs, bpm);
   if (withPhotos.length === 0) return [];
-  if (!withVideos || withVideos.length !== withPhotos.length) return withPhotos;
 
-  return withPhotos.map((scene, index) => ({
-    ...scene,
-    video: withVideos[index]?.video ?? null,
-  }));
+  // Clips share Pexels' hourly limit with the photos. Asking for both at
+  // once makes Pexels refuse the rest of the song, and a scene with no
+  // photo then holds whatever picture is already on screen. Photos go
+  // first. A video failure keeps the photos.
+  try {
+    const withVideos = await attachVideos(drafts);
+    if (withVideos.length !== withPhotos.length) return withPhotos;
+    return withPhotos.map((scene, index) => ({
+      ...scene,
+      video: withVideos[index]?.video ?? null,
+    }));
+  } catch (error) {
+    console.error("Video lookup failed", error);
+    return withPhotos;
+  }
 }
 
 async function photosForScenes(
