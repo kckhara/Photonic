@@ -173,16 +173,26 @@ async function fillScenes(
   durationMs: number,
   bpm: number,
 ): Promise<Scene[]> {
-  const withPhotos = await photosForScenes(drafts, durationMs, bpm);
-  if (withPhotos.length === 0) return [];
+  const withPhotosPromise = photosForScenes(drafts, durationMs, bpm);
+  // Clips only need the picture-words, so they can load while the
+  // photos are chosen. A failure here must not throw away the photos.
+  const videosPromise = attachVideos(drafts).then(
+    (scenes) => scenes,
+    (error: unknown) => {
+      console.error("Video lookup failed", error);
+      return null;
+    },
+  );
 
-  // Videos are extra. A failure here must not throw away the photos.
-  try {
-    return await attachVideos(withPhotos);
-  } catch (error) {
-    console.error("Video lookup failed", error);
-    return withPhotos;
-  }
+  const withPhotos = await withPhotosPromise;
+  const withVideos = await videosPromise;
+  if (withPhotos.length === 0) return [];
+  if (!withVideos || withVideos.length !== withPhotos.length) return withPhotos;
+
+  return withPhotos.map((scene, index) => ({
+    ...scene,
+    video: withVideos[index]?.video ?? null,
+  }));
 }
 
 async function photosForScenes(

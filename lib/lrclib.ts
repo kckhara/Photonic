@@ -43,6 +43,17 @@ const SYNCED_DURATION_WINDOW_SECONDS = 8;
  * closest search hit when the exact lookup missed.
  */
 export async function getLyrics(song: LyricsLookup): Promise<Lyrics> {
+  // The exact record often has no timestamps, and a search is then
+  // required. Start that search now so the two waits overlap. If the
+  // exact record is already synced, the search result is unused.
+  const searchPromise = searchLyrics(song).then(
+    (results) => results,
+    (error: unknown) => {
+      console.error("LRCLIB search failed", error);
+      return null;
+    },
+  );
+
   const exact = await fetchExact(song);
 
   if (exact?.instrumental) {
@@ -51,17 +62,16 @@ export async function getLyrics(song: LyricsLookup): Promise<Lyrics> {
 
   if (hasSyncedLyrics(exact)) return asLyrics(exact);
 
-  // A search failure should keep the plain lyrics we already have.
-  let results: LrcRecord[] = [];
-  try {
-    results = await searchLyrics(song);
-  } catch (error) {
-    if (!exact) throw error;
-    console.error("LRCLIB search failed", error);
+  const results = await searchPromise;
+  // The search failed and there is no exact record to fall back on.
+  if (results === null) {
+    if (!exact) throw new Error("LRCLIB search failed.");
+    return asLyrics(exact);
   }
 
   const synced = pickClosestSynced(results, song.durationSeconds);
-  const record = synced ?? exact ?? pickClosestDuration(results, song.durationSeconds);
+  const record =
+    synced ?? exact ?? pickClosestDuration(results, song.durationSeconds);
   return asLyrics(record);
 }
 

@@ -13,6 +13,11 @@
  * the no-repeat rule, and the stock score run on what's left. If Unsplash
  * fails or hits its limit, that search continues with the Pexels photos.
  *
+ * Searches for the whole song start together, a few at a time, before any
+ * photo is picked. Picking still walks the song in order, so a photo used
+ * early is not offered again. A search already started for this song is
+ * reused instead of sent twice.
+ *
  * For each scene:
  * - Add the next style word from lib/style-words.ts
  *   ("wonder" becomes "wonder moody", then the next scene gets "dusk", and so on).
@@ -61,6 +66,9 @@ import type { Photo, Scene, VideoClip } from "@/lib/types";
 
 const ONE_DAY_SECONDS = 86400;
 const RESULTS_PER_PAGE = 20;
+// How many photo or video searches run at once. High enough that a song
+// does not wait on them one by one, low enough to avoid a burst of 429s.
+const SEARCH_CONCURRENCY = 4;
 const CURATED_PHOTO_COUNT = 20;
 const CURATED_PAGES = 5;
 
@@ -158,6 +166,27 @@ function photoSearchGate(): PhotoSearchGate {
     }
   }
 
+  // One promise per query, shared by the warm-up and the picker. The
+  // day-long cache writes after a search returns, so a second call in
+  // this same song would otherwise start the request again.
+  const pending = new Map<string, Promise<Photo[]>>();
+
+  function search(query: string, page: number): Promise<Photo[]> {
+    const text = query.trim();
+    if (!text) return Promise.resolve([]);
+
+    const key = `${page}\0${text}`;
+    const existing = pending.get(key);
+    if (existing) return existing;
+
+    const request = searchBoth(text, page).catch((error: unknown) => {
+      pending.delete(key);
+      throw error;
+    });
+    pending.set(key, request);
+    return request;
+  }
+
   async function searchBoth(query: string, page: number): Promise<Photo[]> {
     const unsplash = unsplashOff
       ? Promise.resolve([] as Photo[])
@@ -177,8 +206,7 @@ function photoSearchGate(): PhotoSearchGate {
   }
 
   return {
-    search: (query, page) =>
-      query ? searchBoth(query, page) : Promise.resolve([]),
+    search,
     curated: async (page) => {
       const photos = await guard(() => getCuratedPage(page));
       rememberPhotographers(photos);
@@ -202,6 +230,9 @@ export async function attachPhotos(
   // One busy response from Pexels stops later searches in this song.
   // Scenes that already have photos are kept.
   const gate = photoSearchGate();
+  // Start the searches this song will need. Picking below waits on a
+  // finished promise instead of opening a new request per scene.
+  await warmPhotoSearches(scenes, bpm, gate);
 
   const filled: Scene[] = [];
   let lyricIndex = 0;
@@ -230,6 +261,120 @@ export async function attachPhotos(
   }
 
   return filled;
+}
+
+type SceneSearch = {
+  keyword: string;
+  styled: string;
+  needed: number;
+};
+
+/**
+ * Open the photo searches for this song before any scene picks.
+ * Page 1 of the styled search always happens. The plain word, and page 2,
+ * are started only when the pages already in hand look short. That guess
+ * ignores photos earlier scenes will take, so the picker can still ask
+ * for a page this warm-up skipped.
+ */
+async function warmPhotoSearches(
+  scenes: Scene[],
+  bpm: number,
+  gate: PhotoSearchGate,
+): Promise<void> {
+  const plans = sceneSearches(scenes, bpm);
+  if (plans.length === 0) return;
+
+  const queued = new Set<string>();
+  const jobs: Array<() => Promise<unknown>> = [];
+
+  function enqueue(query: string, page: number) {
+    const key = `${page}\0${query}`;
+    if (!query || queued.has(key)) return;
+    queued.add(key);
+    jobs.push(() => gate.search(query, page));
+  }
+
+  async function drain() {
+    const batch = jobs.splice(0, jobs.length);
+    await runPool(batch, SEARCH_CONCURRENCY);
+  }
+
+  for (const plan of plans) enqueue(plan.styled, 1);
+  await drain();
+
+  const needsPlain = new Set<SceneSearch>();
+  for (const plan of plans) {
+    const found = labeledIds(await gate.search(plan.styled, 1), plan.keyword);
+    if (found.length >= plan.needed || plan.styled === plan.keyword) continue;
+    needsPlain.add(plan);
+    enqueue(plan.keyword, 1);
+  }
+  await drain();
+
+  for (const plan of plans) {
+    const ids = new Set(
+      labeledIds(await gate.search(plan.styled, 1), plan.keyword),
+    );
+    if (needsPlain.has(plan)) {
+      for (const id of labeledIds(await gate.search(plan.keyword, 1), plan.keyword)) {
+        ids.add(id);
+      }
+    }
+    if (ids.size >= plan.needed) continue;
+    enqueue(plan.styled, 2);
+    if (plan.styled !== plan.keyword) enqueue(plan.keyword, 2);
+  }
+  await drain();
+}
+
+/** Styled query and how many photos each scene will try to fill. */
+function sceneSearches(scenes: Scene[], bpm: number): SceneSearch[] {
+  const plans: SceneSearch[] = [];
+  let lyricIndex = 0;
+
+  for (const scene of scenes) {
+    if (scene.titleCard) continue;
+    const keyword = scene.keyword.trim();
+    const index = lyricIndex;
+    lyricIndex += 1;
+    if (!keyword) continue;
+
+    plans.push({
+      keyword,
+      styled: styleQuery(keyword, styleWordAt(index)),
+      needed: Math.max(1, photoSlotCount(scene.startMs, scene.endMs, bpm)),
+    });
+  }
+
+  return plans;
+}
+
+/** Wide photos whose description still names the picture-word. */
+function labeledIds(photos: Photo[], keyword: string): string[] {
+  return mentioning(available(photos, new Set(), new Set()), keyword).map(
+    (photo) => photo.id,
+  );
+}
+
+/** Run async jobs with at most `limit` in flight. */
+async function runPool(
+  jobs: Array<() => Promise<unknown>>,
+  limit: number,
+): Promise<void> {
+  if (jobs.length === 0) return;
+
+  let next = 0;
+
+  async function worker() {
+    while (next < jobs.length) {
+      const index = next;
+      next += 1;
+      await jobs[index]();
+    }
+  }
+
+  const workers = Math.min(limit, jobs.length);
+  await Promise.all(Array.from({ length: workers }, () => worker()));
 }
 
 /**
@@ -265,15 +410,18 @@ export async function chooseScenePhotos(
     }
 
     if (onTopic.length < count) {
+      const [styledMore, keywordMore] = await Promise.all([
+        gate.search(styled, 2),
+        styled === keyword.trim()
+          ? Promise.resolve([] as Photo[])
+          : gate.search(keyword, 2),
+      ]);
       addNew(
         onTopic,
-        mentioning(
-          available(await gate.search(styled, 2), usedIds, skippedNarrow),
-          keyword,
-        ),
+        mentioning(available(styledMore, usedIds, skippedNarrow), keyword),
       );
       const bareMore = mentioning(
-        available(await gate.search(keyword, 2), usedIds, skippedNarrow),
+        available(keywordMore, usedIds, skippedNarrow),
         keyword,
       );
       if (bareMore.length > 0) usedBareWord = true;
@@ -779,7 +927,10 @@ export async function attachVideos(scenes: Scene[]): Promise<Scene[]> {
     ),
   ];
 
-  await Promise.all(queries.map((query) => clipsForKeyword(query)));
+  await runPool(
+    queries.map((query) => () => clipsForKeyword(query)),
+    SEARCH_CONCURRENCY,
+  );
 
   const usedIds = new Set<number>();
   const filled: Scene[] = [];
