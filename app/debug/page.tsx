@@ -112,7 +112,8 @@ function WonderCompare() {
       <h2 className="text-lg font-medium">Photo search: “wonder”</h2>
       <p className="text-sm opacity-70">
         This is a sample of the first scene&apos;s search. The search adds one
-        style word and skips descriptions on the blocklist. Photos under{" "}
+        style word and skips photos whose description or address is on the
+        blocklist. Photos under{" "}
         {MIN_PHOTO_WIDTH}px wide are skipped. The rest are scored, and the
         lowest scores are picked at random. A long lyric line gets a new photo
         each time the picture changes. Refresh this page for a new pick.
@@ -148,7 +149,12 @@ function WonderCompare() {
             Style words, in order: {result.styleWords.join(", ")}.
           </p>
           <p className="text-sm opacity-70">
-            Skipped when the description contains: {result.blocklist.join(", ")}.
+            Skipped when the description or the photo address contains:{" "}
+            {result.blocklist.join(", ")}. A quoted slogan is skipped when the
+            caption says the picture reads, says, or is wrapped with those
+            words. A phone, headphones, or a keyboard with no one in the
+            description is skipped too. A person using one, a piano, or a
+            phone booth is kept.
           </p>
         </>
       )}

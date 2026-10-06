@@ -21,7 +21,8 @@
  * For each scene:
  * - Add the next style word from lib/style-words.ts
  *   ("wonder" becomes "wonder moody", then the next scene gets "dusk", and so on).
- * - Ask for 20 landscape photos and skip any whose description is on the blocklist.
+ * - Ask for 20 landscape photos and skip any whose description or page
+ *   address is on the blocklist. Unsplash photos get that same skip.
  * - Keep a styled photo only when its description still mentions the picture-word.
  *   Otherwise "sky light" becomes a skylight and "hobo texture" becomes fabric.
  * - Skip any photo already chosen earlier in this same song.
@@ -535,7 +536,7 @@ async function fetchFilteredSearch(
   for (const photo of photos) {
     if (seen.has(photo.id)) continue;
     seen.add(photo.id);
-    if (altIsBlocked(photo.alt, query)) continue;
+    if (photoIsBlocked(photo, query)) continue;
     kept.push(photo);
   }
 
@@ -582,8 +583,9 @@ function isWideEnough(photo: Photo): boolean {
 
 /**
  * Pexels and Unsplash answer the same words. Keep one copy of each photo,
- * then drop anything on the blocklist. The no-repeat rule and the random
- * pick run on this list afterwards.
+ * then drop anything on the blocklist. The description and the page
+ * address are both checked, so a stock word in either place is enough.
+ * The no-repeat rule and the random pick run on this list afterwards.
  */
 function combineSearchPhotos(query: string, groups: Photo[][]): Photo[] {
   const seenIds = new Set<string>();
@@ -596,12 +598,18 @@ function combineSearchPhotos(query: string, groups: Photo[][]): Photo[] {
       if (photo.src && seenSrc.has(photo.src)) continue;
       seenIds.add(photo.id);
       if (photo.src) seenSrc.add(photo.src);
-      if (altIsBlocked(photo.alt, query)) continue;
+      if (photoIsBlocked(photo, query)) continue;
       combined.push(photo);
     }
   }
 
   return combined;
+}
+
+/** True when the description or the page address is on the blocklist. */
+function photoIsBlocked(photo: Photo, query: string): boolean {
+  if (altIsBlocked(photo.alt, query)) return true;
+  return altIsBlocked(slugText(photo.pageUrl), query);
 }
 
 /** Add photos that are not already in the list. */

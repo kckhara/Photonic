@@ -8,9 +8,11 @@
  * the song is built, so that choice is not cached.
  *
  * Each search asks for landscape photos with the stricter content filter.
- * The caller merges those with the Pexels results, then applies the
- * blocklist. If Unsplash fails or is over its limit, the caller keeps
- * going with Pexels only.
+ * The caller merges those with the Pexels results, then applies the same
+ * blocklist, width check, and stock score. The average color comes from
+ * the blur hash, which is the same kind of signal as a Pexels avg_color.
+ * If Unsplash fails or is over its limit, the caller keeps going with
+ * Pexels only.
  *
  * Image files are loaded straight from Unsplash's own addresses. We do
  * not copy them onto our server. The first time a photo is actually
@@ -39,6 +41,10 @@ type UnsplashPhoto = {
   width?: number;
   height?: number;
   color?: string | null;
+  // Compact stand-in for the picture. Its average color is the same kind
+  // of signal Pexels sends as avg_color.
+  blur_hash?: string | null;
+  short_description?: string | null;
   urls?: UnsplashUrls;
   links?: {
     html?: string;
@@ -117,8 +123,9 @@ const getUnsplashSearch = unstable_cache(
     "landscape",
     "content-filter-high",
     "per-page-20",
-    // Cached photos need a width and a photographer id for the stock score.
-    "width-photographer-id",
+    // Cached photos need a width, a photographer id, and an average
+    // color (read from the blur hash) for the stock score.
+    "width-photographer-id-blurhash-average",
   ],
   { revalidate: ONE_DAY_SECONDS },
 );
@@ -275,11 +282,7 @@ function toUnsplashPhoto(photo: UnsplashPhoto): Photo | null {
   const src = unsplashImageUrl(photo.urls);
   if (!src) return null;
 
-  const alt =
-    [photo.alt_description, photo.description]
-      .map((part) => part?.trim())
-      .filter((part): part is string => Boolean(part))
-      .join(". ") || "Photo";
+  const alt = unsplashAlt(photo);
 
   const downloadLocation = photo.links?.download_location?.trim() || "";
   const userId = photo.user?.id?.trim() || "";
@@ -289,7 +292,8 @@ function toUnsplashPhoto(photo: UnsplashPhoto): Photo | null {
     provider: "unsplash",
     src,
     alt,
-    avgColor: placeholderColor(photo.color),
+    avgColor:
+      averageColorFromBlurHash(photo.blur_hash) || placeholderColor(photo.color),
     ...(photo.width && photo.width > 0 ? { width: photo.width } : {}),
     ...(userId ? { photographerId: `unsplash:${userId}` } : {}),
     photographer: photo.user?.name?.trim() || "Unknown photographer",
@@ -300,6 +304,65 @@ function toUnsplashPhoto(photo: UnsplashPhoto): Photo | null {
       ? { downloadLocation }
       : {}),
   };
+}
+
+/** Description text, without repeating the same sentence twice. */
+function unsplashAlt(photo: UnsplashPhoto): string {
+  const parts: string[] = [];
+
+  for (const part of [
+    photo.alt_description,
+    photo.short_description,
+    photo.description,
+  ]) {
+    const text = part?.trim();
+    if (!text) continue;
+    const already = parts.some(
+      (existing) => existing.toLowerCase() === text.toLowerCase(),
+    );
+    if (already) continue;
+    parts.push(text);
+  }
+
+  return parts.join(". ") || "Photo";
+}
+
+/**
+ * Average sRGB color stored in a BlurHash, as a hex code.
+ * Pexels scores brightness from avg_color. Unsplash's `color` is only a
+ * swatch, so the stock score uses this average instead.
+ * Returns "" when the hash is missing or not one we can read.
+ */
+function averageColorFromBlurHash(blurHash: string | null | undefined): string {
+  const hash = blurHash?.trim() ?? "";
+  if (hash.length < 6) return "";
+
+  const value = decodeBase83(hash.slice(2, 6));
+  if (value == null) return "";
+
+  const red = (value >> 16) & 255;
+  const green = (value >> 8) & 255;
+  const blue = value & 255;
+  return `#${toHex(red)}${toHex(green)}${toHex(blue)}`;
+}
+
+const BLURHASH_DIGITS =
+  "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz#$%*+,-.:;=?@[]^_{|}~";
+
+function decodeBase83(text: string): number | null {
+  let value = 0;
+
+  for (const character of text) {
+    const digit = BLURHASH_DIGITS.indexOf(character);
+    if (digit < 0) return null;
+    value = value * 83 + digit;
+  }
+
+  return value;
+}
+
+function toHex(value: number): string {
+  return value.toString(16).padStart(2, "0");
 }
 
 function placeholderColor(color: string | null | undefined): string {

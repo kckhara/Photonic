@@ -1,8 +1,9 @@
 /**
- * Words and phrases that disqualify a Pexels photo.
+ * Words and phrases that disqualify a photo from Pexels or Unsplash.
  *
  * If a photo's description contains one of these, we skip it. The goal is
- * to avoid pictures of written words (Scrabble tiles, neon signs, quotes)
+ * to avoid pictures of written words (Scrabble tiles, neon signs, quotes,
+ * placards, and a slogan printed on an object)
  * and obvious stock setups (someone smiling at a laptop in an office).
  *
  * Product shots are skipped too. A short lyric word is often part of the
@@ -20,10 +21,12 @@
  *   night", but the word "neon" on its own does not. Hyphens and
  *   underscores count as spaces, so "hard drive" matches "hard-drive".
  *
- * "nothing phone" is the phone brand. A search for the lyric word
- * "nothing" also returns that phone described only as a smartphone
- * or an iPhone, so those are skipped too. Other songs can still
- * show a phone.
+ * A catalog shot of a phone, headphones, or a keyboard is skipped too,
+ * in every search. "Nothing" was matching Nothing headphones, and
+ * "oblivion" was matching a keycap set, because the lyric word is in
+ * the product name. Someone using the object still counts: "hands
+ * playing a keyboard", "woman holding a phone". A piano or organ
+ * keyboard still counts. A phone booth still counts.
  */
 
 export const PHOTO_BLOCKLIST = [
@@ -32,6 +35,27 @@ export const PHOTO_BLOCKLIST = [
   "letters",
   "typography",
   "sign",
+  // Plurals and other names for the same thing. "sign" does not match "signs".
+  "signs",
+  "placard",
+  "placards",
+  "banner",
+  "banners",
+  "poster",
+  "posters",
+  "billboard",
+  "billboards",
+  "slogan",
+  "slogans",
+  "marquee",
+  "marquees",
+  "lettering",
+  "graffiti",
+  "logo",
+  "logos",
+  "that says",
+  "that read",
+  "the phrase",
   "quote",
   "written",
   "scrabble",
@@ -39,9 +63,24 @@ export const PHOTO_BLOCKLIST = [
   "alphabet",
   "neon sign",
   "smiling",
+  // Stock captions talk this way. The picture is an ad, not a scene.
+  "promoting",
+  "advocating",
+  "activewear",
+  "body positivity",
   "business",
+  "businessman",
+  "businesswoman",
+  "businessmen",
+  "businesswomen",
   "office",
+  "coworking",
   "laptop",
+  // Unsplash captions name the computer instead of saying "laptop".
+  "macbook",
+  "macbooks",
+  "imac",
+  "imacs",
   "posing",
   "nothing phone",
   // Product photography, including objects whose name contains a lyric word.
@@ -82,15 +121,96 @@ export const PHOTO_BLOCKLIST = [
   "nvme",
 ];
 
-// Descriptions of the Nothing Phone that never say the brand name.
-const NOTHING_PHONE_WORDS = ["phone", "smartphone", "iphone", "cellphone"];
+// The object is the whole picture: a product on a stand, not a scene.
+const CATALOG_DEVICES = [
+  "headphone",
+  "headphones",
+  "headset",
+  "headsets",
+  "earphone",
+  "earphones",
+  "earbud",
+  "earbuds",
+  "airpod",
+  "airpods",
+  "smartphone",
+  "smartphones",
+  "iphone",
+  "iphones",
+  "cellphone",
+  "cellphones",
+];
+
+const CATALOG_PHRASES = [
+  "computer keyboard",
+  "mechanical keyboard",
+  "laptop keyboard",
+  "gaming keyboard",
+  // Captions split these. "earbuds" is already one word above.
+  "ear bud",
+  "ear buds",
+  "air pod",
+  "air pods",
+  // The product is named "Ear", not "earbuds". "Nothing Ear (1)".
+  "nothing ear",
+];
+
+// A person in the description means it is a scene, not a product shot.
+const SCENE_WORDS = [
+  "person",
+  "people",
+  "man",
+  "woman",
+  "men",
+  "women",
+  "boy",
+  "girl",
+  "child",
+  "children",
+  "kid",
+  "kids",
+  "guy",
+  "guys",
+  "adult",
+  "adults",
+  "couple",
+  "crowd",
+  "musician",
+  "dj",
+  "singer",
+  "hand",
+  "hands",
+  "wearing",
+  "worn",
+  "holding",
+  "held",
+  "playing",
+  "typing",
+  "using",
+  "someone",
+  "somebody",
+];
+
+// "keyboard" alone is a product shot. These are the instrument.
+const MUSICAL_KEYBOARDS = [
+  "piano",
+  "organ",
+  "synth",
+  "synthesizer",
+  "accordion",
+  "harpsichord",
+];
+
+// "phone" alone is a product shot. These are a place.
+const PHONE_PLACES = ["booth", "payphone", "street", "sidewalk"];
 
 /**
  * True when this description should be skipped.
  * An empty description is kept — we only skip photos we can tell are a problem.
- * Pass the search words when you have them, so "nothing" can skip phones.
+ * The search words are accepted so callers can pass them. The catalog
+ * check does not need them: a product shot is a product shot in any song.
  */
-export function altIsBlocked(alt: string, query = ""): boolean {
+export function altIsBlocked(alt: string, _query = ""): boolean {
   // Hyphens are spaces, so "hard-drive" is the phrase "hard drive".
   const text = alt.toLowerCase().replace(/[-_]+/g, " ");
   // Split on anything that is not a letter or number, so "sign." and
@@ -108,13 +228,43 @@ export function altIsBlocked(alt: string, query = ""): boolean {
     if (words.includes(needle)) return true;
   }
 
-  if (
-    wordsIn(query).includes("nothing") &&
-    NOTHING_PHONE_WORDS.some((word) => words.includes(word))
-  ) {
-    return true;
-  }
+  if (isCatalogDevice(text, words)) return true;
+  if (quotesASlogan(text, words)) return true;
 
+  return false;
+}
+
+// Next to a quoted slogan, these mean the words are in the picture.
+// "Reading" on its own can be a person with a book, so the quote is required.
+const SLOGAN_CUES = [
+  "read",
+  "reads",
+  "reading",
+  "says",
+  "saying",
+  "phrase",
+  "printed",
+  "labeled",
+  "labelled",
+  "lettering",
+  "slogan",
+  "wrapped",
+  "inscribed",
+  "spelled",
+  "spelling",
+];
+
+/**
+ * True when the caption quotes words that are printed in the picture.
+ * "signs that read 'Racism is Not Opinion'". "wrapped with a
+ * \"gettin' stronger\" band". A title in a photographer's note, with
+ * no cue like "read" or "says", is left alone.
+ */
+function quotesASlogan(text: string, words: string[]): boolean {
+  if (!SLOGAN_CUES.some((word) => words.includes(word))) return false;
+  if (/"[^"\n]*\s[^"\n]*"/.test(text)) return true;
+  if (/“[^”\n]*\s[^”\n]*”/.test(text)) return true;
+  if (/'[^'\n]*\s[^'\n]*'/.test(text)) return true;
   return false;
 }
 
@@ -129,6 +279,27 @@ export function altMentionsWord(alt: string, word: string): boolean {
   if (needle.length < 2) return false;
 
   return wordsIn(alt).some((token) => isSameOrPlural(token, needle));
+}
+
+/**
+ * A phone, headphones, or a keyboard photographed as a product.
+ * Someone in the description keeps it. So does a piano, or a phone booth.
+ */
+function isCatalogDevice(text: string, words: string[]): boolean {
+  if (SCENE_WORDS.some((word) => words.includes(word))) return false;
+
+  if (CATALOG_DEVICES.some((word) => words.includes(word))) return true;
+  if (CATALOG_PHRASES.some((phrase) => text.includes(phrase))) return true;
+
+  const keyboard = words.includes("keyboard") || words.includes("keyboards");
+  if (keyboard && !MUSICAL_KEYBOARDS.some((word) => words.includes(word))) {
+    return true;
+  }
+
+  const phone = words.includes("phone") || words.includes("phones");
+  if (phone && !PHONE_PLACES.some((word) => words.includes(word))) return true;
+
+  return false;
 }
 
 function isSameOrPlural(token: string, word: string): boolean {
