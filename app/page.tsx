@@ -17,6 +17,7 @@ import { SearchBox } from "@/components/SearchBox";
 import { Visualizer } from "@/components/Visualizer";
 import type { SearchHit } from "@/lib/deezer";
 import {
+  PREVIEW_MAX_MS,
   classifyPlayback,
   playbackHasEnded,
   type PlaybackKind,
@@ -91,6 +92,15 @@ export default function Home() {
   const [holdPhotos, setHoldPhotos] = useState(false);
   const [showNoLyricsSentence, setShowNoLyricsSentence] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
+  // Phones use the same layout breakpoint as the CSS. Spotify's embed
+  // on a phone often reports the full song length while only playing
+  // the 30-second preview, so the lyric intro (a blurred album cover)
+  // would cover the photos for the whole clip.
+  const [narrowLayout, setNarrowLayout] = useState(false);
+  // True once the playhead has moved past a preview on a long timeline.
+  // Until then, a phone shows photos on the beat instead of that cover.
+  const [passedPreview, setPassedPreview] = useState(false);
+  const passedPreviewRef = useRef(false);
   const [playerCommand, setPlayerCommand] = useState<PlayerCommand | null>(null);
   const [showCredits, setShowCredits] = useState(false);
   // Copied when the song ends, then updated if the last photo finishes
@@ -152,6 +162,14 @@ export default function Home() {
   useEffect(() => {
     if (colorTouchedRef.current) return;
     setColorMode(readColorMode());
+  }, []);
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 760px)");
+    const sync = () => setNarrowLayout(query.matches);
+    sync();
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
   }, []);
 
   // Hide the search and filters after a still moment, then bring them
@@ -277,7 +295,19 @@ export default function Home() {
   }
 
   function applyVerdict(verdict: PlaybackKind) {
-    if (verdict === "unknown" || verdict === lastVerdictRef.current) return;
+    if (verdict === "unknown") return;
+    // A preview embed sometimes reports the full song length on the
+    // next update. Leaving preview then puts the album cover back and
+    // clears the photo that just appeared. Stay in preview until the
+    // playhead has actually passed the clip.
+    if (
+      verdict === "full" &&
+      lastVerdictRef.current === "preview" &&
+      !passedPreviewRef.current
+    ) {
+      return;
+    }
+    if (verdict === lastVerdictRef.current) return;
     lastVerdictRef.current = verdict;
     if (verdict === "preview") enterPreview();
     else enterFullSong();
@@ -291,6 +321,8 @@ export default function Home() {
     nearEndRef.current = false;
     ignoreEndRef.current = false;
     acceptPlaybackAfterRef.current = 0;
+    passedPreviewRef.current = false;
+    setPassedPreview(false);
     setPreviewMode(false);
     setPlayerCommand(null);
   }
@@ -345,14 +377,30 @@ export default function Home() {
       reportedDurationRef.current = sample.reportedDurationMs;
     }
     if (!sample) return;
+
+    const reported = reportedDurationRef.current;
+    if (
+      !passedPreviewRef.current &&
+      reported &&
+      reported > PREVIEW_MAX_MS &&
+      sample.positionMs > PREVIEW_MAX_MS
+    ) {
+      passedPreviewRef.current = true;
+      setPassedPreview(true);
+    }
+
     if (sample.isPlaying) heardPlaybackRef.current = true;
 
     const currentSong = songRef.current;
-    if (!currentSong || !heardPlaybackRef.current) return;
+    if (!currentSong) return;
 
-    applyVerdict(
-      classifyPlayback(currentSong.durationMs, reportedDurationRef.current),
-    );
+    // A length is enough to know this is a preview. Waiting until the
+    // play button works would leave the album cover up for the whole clip.
+    if (reported) {
+      applyVerdict(classifyPlayback(currentSong.durationMs, reported));
+    }
+
+    if (!heardPlaybackRef.current) return;
 
     // A preview does not open credits. A full song does.
     // "Unknown" means Spotify hasn't reported a length yet, so we wait.
@@ -384,7 +432,9 @@ export default function Home() {
         song={song}
         playback={playback}
         holdPhotos={holdPhotos}
-        previewMode={previewMode}
+        previewMode={
+          previewMode || (narrowLayout && !passedPreview && Boolean(song))
+        }
         visualMode={song?.lyricsType === "none" ? "photos" : visualMode}
         colorMode={colorMode}
         onShownPhotos={onShownPhotos}

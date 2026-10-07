@@ -9,7 +9,7 @@
  */
 
 // Spotify's preview is about 30 seconds. Anything under this counts as short.
-const PREVIEW_MAX_MS = 35_000;
+export const PREVIEW_MAX_MS = 35_000;
 
 // Deezer's song length and Spotify's length are rarely identical.
 // The real song has to be a few seconds longer than the clip, so a

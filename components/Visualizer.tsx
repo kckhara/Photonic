@@ -763,7 +763,7 @@ export function Visualizer({
       if (!currentSong || scenes.length === 0 || waitingForPlayback) {
         if (currentSong && !beatOnly) holdTitle(true);
         if (beatOnly) holdTitle(false);
-        if (chosenIdRef.current !== undefined) {
+        if (chosenIdRef.current !== undefined || slidesRef.current.length > 0) {
           chosenIdRef.current = undefined;
           setSlides([]);
         }
