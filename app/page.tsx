@@ -53,6 +53,25 @@ import type {
 // How long the page stays still before the search and filters hide.
 const IDLE_MS = 3000;
 
+/**
+ * True on a phone, including landscape and "Request Desktop Website".
+ * Those modes are wider than 760px and can report a fine pointer, so
+ * width alone misses them. A missed phone plays video clips over the
+ * preview, and the clips flash black.
+ */
+function readPhoneLayout(): boolean {
+  if (window.matchMedia("(max-width: 760px)").matches) return true;
+  if (window.matchMedia("(pointer: coarse)").matches) return true;
+
+  const ua = navigator.userAgent;
+  if (/iPhone|iPod|Android.+Mobile|webOS|BlackBerry|IEMobile|Opera Mini/i.test(ua)) {
+    return true;
+  }
+
+  const shortSide = Math.min(window.screen.width, window.screen.height);
+  return navigator.maxTouchPoints > 0 && shortSide > 0 && shortSide <= 900;
+}
+
 export default function Home() {
   // pickId changes on every choice, even the same row twice, so the player
   // starts that request from scratch instead of keeping the previous song.
@@ -92,18 +111,18 @@ export default function Home() {
   const [holdPhotos, setHoldPhotos] = useState(false);
   const [showNoLyricsSentence, setShowNoLyricsSentence] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
-  // Phones include landscape, which is wider than the layout breakpoint.
+  // Phones include landscape and "desktop site", which are wider than
+  // the layout breakpoint and sometimes report a mouse pointer.
   // Spotify on a phone often reports the full song length while only
   // playing the 30-second preview. Until that preview is over, photos
   // stay on the beat: no album cover, no clips.
   const [phoneLayout, setPhoneLayout] = useState<boolean | null>(null);
-  // True once a phone has been playing for longer than a preview.
-  // Spotify's position is not used here: one high reading would
-  // drop the photos and bring the flashing cover back.
+  // True once playback has stayed past a preview for several reports.
+  // One high reading is not enough: Spotify's clock jumps, and that
+  // used to drop the photos and bring the flashing cover back.
   const [passedPreview, setPassedPreview] = useState(false);
   const passedPreviewRef = useRef(false);
-  const playedMsRef = useRef(0);
-  const playStampRef = useRef<number | null>(null);
+  const pastPreviewSamplesRef = useRef(0);
   const [playerCommand, setPlayerCommand] = useState<PlayerCommand | null>(null);
   const [showCredits, setShowCredits] = useState(false);
   // Copied when the song ends, then updated if the last photo finishes
@@ -168,13 +187,18 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const query = window.matchMedia(
-      "(max-width: 760px), ((hover: none) and (pointer: coarse))",
-    );
-    const sync = () => setPhoneLayout(query.matches);
+    const queries = [
+      window.matchMedia("(max-width: 760px)"),
+      window.matchMedia("(pointer: coarse)"),
+    ];
+    const sync = () => setPhoneLayout(readPhoneLayout());
     sync();
-    query.addEventListener("change", sync);
-    return () => query.removeEventListener("change", sync);
+    for (const query of queries) query.addEventListener("change", sync);
+    window.addEventListener("orientationchange", sync);
+    return () => {
+      for (const query of queries) query.removeEventListener("change", sync);
+      window.removeEventListener("orientationchange", sync);
+    };
   }, []);
 
   // Hide the search and filters after a still moment, then bring them
@@ -327,8 +351,7 @@ export default function Home() {
     ignoreEndRef.current = false;
     acceptPlaybackAfterRef.current = 0;
     passedPreviewRef.current = false;
-    playedMsRef.current = 0;
-    playStampRef.current = null;
+    pastPreviewSamplesRef.current = 0;
     setPassedPreview(false);
     setPreviewMode(false);
     setPlayerCommand(null);
@@ -383,27 +406,22 @@ export default function Home() {
     if (sample?.reportedDurationMs && sample.reportedDurationMs > 0) {
       reportedDurationRef.current = sample.reportedDurationMs;
     }
-    if (!sample) {
-      playStampRef.current = null;
-      return;
-    }
+    if (!sample) return;
 
     const reported = reportedDurationRef.current;
-    if (sample.isPlaying) {
-      const stamp = playStampRef.current;
-      if (stamp != null) {
-        const delta = sample.receivedAt - stamp;
-        if (delta > 0 && delta < 2000) playedMsRef.current += delta;
-      }
-      playStampRef.current = sample.receivedAt;
+    // A preview loops back near the start. A single jump past 30 seconds
+    // is the same kind of lie. Only a run of readings past the preview
+    // means this is the full song.
+    if (sample.positionMs > PREVIEW_MAX_MS) {
+      pastPreviewSamplesRef.current += 1;
     } else {
-      playStampRef.current = null;
+      pastPreviewSamplesRef.current = 0;
     }
     if (
       !passedPreviewRef.current &&
       reported &&
       reported > PREVIEW_MAX_MS &&
-      playedMsRef.current > PREVIEW_MAX_MS
+      pastPreviewSamplesRef.current >= 3
     ) {
       passedPreviewRef.current = true;
       setPassedPreview(true);

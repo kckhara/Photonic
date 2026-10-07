@@ -716,7 +716,11 @@ export function Visualizer({
               const settled = current.filter((slide) => slide.visible);
               const top = settled[settled.length - 1];
               if (top && top.photo.id === next.photo.id) return [top];
-              return [incoming];
+              // Keep the photo people are looking at underneath. Dropping
+              // it in the same paint leaves a blank frame, which reads as
+              // a flash. The next change keeps only the latest one.
+              if (!top) return [incoming];
+              return [top, incoming];
             });
             setShownPhotos((current) => rememberPhoto(current, next.photo));
           } else {
@@ -870,7 +874,9 @@ export function Visualizer({
             chosenIdRef.current = undefined;
             instant = true;
           }
-          showPhoto(scenes, positionMs, currentSong.bpm, instant);
+          // A preview cuts. Fading a grayscale photo blanks it on phones,
+          // so the screen strobes between pictures.
+          showPhoto(scenes, positionMs, currentSong.bpm, instant || beatOnly);
         } else {
           photosHeld = true;
           // The clip is covering the photos, but the picture for this
@@ -969,16 +975,25 @@ export function Visualizer({
     song.scenes.some((scene) => sceneShowsClip(scene, visualMode));
 
   const fadeMs = crossfadeMs(song?.bpm ?? 120);
-  // Pexels sends an average color. Show it while the file is still arriving
-  // so the screen doesn't flash white.
+  // Pexels sends an average color. Once a photo is up, keep that color.
+  // The incoming picture's color would flash through any gap in the fade.
+  let shownColor: string | undefined;
+  for (let i = slides.length - 1; i >= 0; i -= 1) {
+    if (slides[i].visible) {
+      shownColor = slides[i].photo.avgColor;
+      break;
+    }
+  }
   const placeholder =
-    slides[slides.length - 1]?.photo.avgColor || "var(--color-bg-photo-fallback)";
+    shownColor ||
+    slides[slides.length - 1]?.photo.avgColor ||
+    "var(--color-bg-photo-fallback)";
 
   return (
     <div
       className={`photo-stage pointer-events-none fixed inset-0 z-0 overflow-hidden${
-        colorMode === "bw" ? " is-bw" : ""
-      }`}
+        beatOnly ? " is-preview" : ""
+      }${colorMode === "bw" ? " is-bw" : ""}`}
       style={{ backgroundColor: holdPhotos ? "var(--color-bg-black)" : placeholder }}
       aria-hidden="true"
     >
@@ -995,6 +1010,7 @@ export function Visualizer({
             key={slide.token}
             slide={slide}
             fadeMs={fadeMs}
+            cut={beatOnly}
             // Above the title card, so the first photo can fade in over it.
             zIndex={index + 1}
             onReveal={revealSlide}
@@ -1206,6 +1222,7 @@ function formatCountdown(totalSeconds: number): string {
 function FadePhoto({
   slide,
   fadeMs,
+  cut = false,
   zIndex,
   onReveal,
   onSettled,
@@ -1213,6 +1230,9 @@ function FadePhoto({
 }: {
   slide: Slide;
   fadeMs: number;
+  // True during a preview. The picture cuts instead of fading. Fading a
+  // filtered photo blanks it on phones, and the screen strobes.
+  cut?: boolean;
   zIndex: number;
   onReveal: (token: number, photo: Photo) => void;
   onSettled: (token: number) => void;
@@ -1256,10 +1276,26 @@ function FadePhoto({
 
   const fade = `${fadeMs}ms`;
 
+  // Opacity lives on the wrapper. The grayscale filter lives on the
+  // image. Fading the filtered image itself blanks it on phones.
   // No fill behind the picture. A flat color here would hide the photo
   // underneath for the whole fade, which reads as the screen flashing.
   return (
-    <div className="absolute inset-0" style={{ zIndex }}>
+    <div
+      className="absolute inset-0"
+      style={{
+        zIndex,
+        opacity: slide.visible ? 1 : 0,
+        transition: cut ? "none" : `opacity ${fade} ease-in-out`,
+      }}
+      onTransitionEnd={(event) => {
+        if (cut) return;
+        if (event.propertyName !== "opacity") return;
+        if (event.target !== event.currentTarget) return;
+        if (!slide.visible) return;
+        onSettled(slide.token);
+      }}
+    >
       {quickSrc !== slide.photo.src && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -1269,21 +1305,9 @@ function FadePhoto({
           decoding="async"
           fetchPriority="high"
           className="absolute inset-0 h-full w-full object-cover"
-          style={{
-            opacity: slide.visible ? 1 : 0,
-            transitionProperty: "opacity",
-            transitionDuration: fade,
-            transitionTimingFunction: "ease-in-out",
-          }}
           onLoad={() => {
             loadedSrcs.add(quickSrc);
             onReveal(slide.token, slide.photo);
-          }}
-          onTransitionEnd={(event) => {
-            if (event.propertyName !== "opacity") return;
-            if (event.target !== event.currentTarget) return;
-            if (!slide.visible) return;
-            onSettled(slide.token);
           }}
         />
       )}
@@ -1297,12 +1321,7 @@ function FadePhoto({
         fetchPriority="high"
         decoding="async"
         className="absolute inset-0 h-full w-full object-cover"
-        style={{
-          opacity: slide.visible && sharpReady ? 1 : 0,
-          transitionProperty: "opacity",
-          transitionDuration: fade,
-          transitionTimingFunction: "ease-in-out",
-        }}
+        style={cut || sharpReady ? undefined : { opacity: 0 }}
         onLoad={() => {
           loadedSrcs.add(slide.photo.src);
           setSharpReady(true);
@@ -1320,12 +1339,6 @@ function FadePhoto({
           // The smaller copy is already up. Keep that instead of going empty.
           if ((previewRef.current?.naturalWidth ?? 0) > 0) return;
           onGiveUp(slide.token, slide.photo.src);
-        }}
-        onTransitionEnd={(event) => {
-          if (event.propertyName !== "opacity") return;
-          if (event.target !== event.currentTarget) return;
-          if (!slide.visible || !sharpReady) return;
-          onSettled(slide.token);
         }}
       />
     </div>

@@ -1111,6 +1111,12 @@ body {
   filter: grayscale(1);
 }
 
+/* A phone preview must not paint a clip. A hidden video still flashes
+   black over the photo on iOS if it is only moved off screen. */
+.photo-stage.is-preview video {
+  display: none;
+}
+
 .photo-stage.is-bw .title-card-zoom {
   filter: grayscale(1) blur(28px);
 }
