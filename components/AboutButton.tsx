@@ -5,8 +5,9 @@ import { useEffect, useRef, useState, type MouseEvent } from "react";
 const CONTACT_EMAIL = "oneamexperiments@gmail.com";
 
 /**
- * Info button fixed at the top right of every screen.
- * Opens the About dialog.
+ * Info button fixed on every screen. Desktop keeps it at the top right.
+ * On a phone it sits at the bottom right so the player, search, and
+ * filters can use the full width. Opens the About dialog.
  */
 export function AboutButton() {
   const buttonRef = useRef<HTMLButtonElement>(null);

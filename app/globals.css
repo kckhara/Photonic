@@ -1001,13 +1001,22 @@ body {
 }
 
 @media (max-width: 760px) {
+  /* The info button moves to the bottom right, so search, the player,
+     and the filters can run the full width. */
+  .about-button {
+    top: auto;
+    right: calc(
+      var(--space-about-button-right) + env(safe-area-inset-right, 0px)
+    );
+    bottom: calc(
+      var(--space-about-button-right) + env(safe-area-inset-bottom, 0px)
+    );
+  }
+
   .home-search-slot {
     justify-content: flex-start;
     padding-left: var(--space-search-padding-right);
-    padding-right: calc(
-      var(--space-about-button) + var(--space-about-button-right) +
-        var(--space-stack-gap)
-    );
+    padding-right: var(--space-search-padding-right);
   }
 
   .home-search-slot > * {
@@ -1017,9 +1026,33 @@ body {
   .home-controls.has-player {
     align-items: stretch;
     padding-left: var(--space-search-padding-right);
-    padding-right: calc(
+    padding-right: var(--space-search-padding-right);
+  }
+
+  .search-results,
+  .is-credits .home-controls.has-player .search-results {
+    max-height: calc(
+      100vh - var(--space-column-top) - var(--space-search-height) -
+        var(--space-dropdown-gap) - var(--space-about-button) -
+        var(--space-about-button-right) - var(--space-stack-gap) -
+        env(safe-area-inset-bottom, 0px)
+    );
+  }
+
+  .home-controls.has-player .search-results {
+    max-height: calc(
+      100vh - var(--space-column-top) - var(--space-spotify-height) -
+        var(--space-stack-gap) - var(--space-search-height) -
+        var(--space-dropdown-gap) - var(--space-about-button) -
+        var(--space-about-button-right) - var(--space-stack-gap) -
+        env(safe-area-inset-bottom, 0px)
+    );
+  }
+
+  .credits-sheet {
+    padding-bottom: calc(
       var(--space-about-button) + var(--space-about-button-right) +
-        var(--space-stack-gap)
+        var(--space-stack-gap) + env(safe-area-inset-bottom, 0px)
     );
   }
 
