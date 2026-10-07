@@ -463,9 +463,8 @@ function HomeIntro() {
           <span className="home-intro-title-quiet">matched by their words</span>
         </h1>
         <p className="home-intro-text">
-          What happens when you pair music with images
-          <br />
-          that were never meant to be together?
+          What happens when you pair music with images that were never
+          meant to be together?
         </p>
       </div>
     </div>
