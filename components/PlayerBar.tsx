@@ -77,15 +77,12 @@ export function PlayerBar({
   selection,
   onSong,
   onPlayback,
-  previewMode = false,
   playerCommand = null,
   onVisibleChange,
 }: {
   selection: SearchHit;
   onSong: (song: SongPackage | null) => void;
   onPlayback: (playback: PlaybackSample | null) => void;
-  // True while Spotify is only playing a 30-second preview.
-  previewMode?: boolean;
   // Reload the embed, or send the preview back to the start.
   playerCommand?: PlayerCommand | null;
   // True once the Spotify embed is on the page.
@@ -217,11 +214,6 @@ export function PlayerBar({
           />
         )}
       </section>
-      <div className={`spotify-hint-slot${previewMode ? " is-in" : ""}`}>
-        <div className="spotify-hint-clip">
-          <PreviewLoginHint />
-        </div>
-      </div>
     </>
   );
 }
@@ -297,6 +289,7 @@ function SpotifyPlayer({
 
     let cancelled = false;
     let stallTimer = 0;
+    let detachGesture: (() => void) | null = null;
 
     function onApiReady(api: IFrameAPI) {
       const spotifyWindow = spotifyGlobals();
@@ -346,6 +339,19 @@ function SpotifyPlayer({
           // opens already paused, and that must not rebuild the player.
           let heardPlaying = false;
 
+          // Phones ignore play() once the tap that chose the song has
+          // ended. The next tap on the page is still a gesture, so use
+          // that to start the preview. A tap inside Spotify's frame
+          // does not reach this listener; Spotify handles that itself.
+          const onPointerDown = () => {
+            if (cancelled || heardPlaying) return;
+            tryPlay(controller);
+          };
+          window.addEventListener("pointerdown", onPointerDown, true);
+          detachGesture = () => {
+            window.removeEventListener("pointerdown", onPointerDown, true);
+          };
+
           function recover(positionMs: number) {
             if (cancelled || recovered) return;
             recovered = true;
@@ -367,6 +373,11 @@ function SpotifyPlayer({
                 positionMs,
                 false,
               );
+              // The playhead never moved, so this was a blocked autoplay,
+              // not a stuck preview. Rebuilding here turns autoplay off
+              // and leaves only Spotify's own play button. A tap on the
+              // page can still start this same player.
+              if (!heardPlaying) return;
               if (autoplay) recover(0);
             }, STALL_MS);
           }
@@ -466,6 +477,7 @@ function SpotifyPlayer({
     return () => {
       cancelled = true;
       window.clearTimeout(stallTimer);
+      detachGesture?.();
       publish(null);
       destroyController(controllerRef.current);
       controllerRef.current = null;
@@ -503,20 +515,6 @@ function SpotifyPlayer({
         <div ref={hostRef} />
       </div>
     </div>
-  );
-}
-
-const SPOTIFY_LOGIN_URL = "https://accounts.spotify.com/login";
-
-/** Shown under the player while Spotify is only playing a preview. */
-function PreviewLoginHint() {
-  return (
-    <p className="spotify-login-hint">
-      Already have an account?{" "}
-      <a href={SPOTIFY_LOGIN_URL} target="_blank" rel="noopener noreferrer">
-        Login to spotify
-      </a>.
-    </p>
   );
 }
 
