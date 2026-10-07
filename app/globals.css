@@ -1103,6 +1103,16 @@ body {
 
 .title-card-zoom {
   animation: title-card-zoom 36s ease-out forwards;
+  filter: blur(28px);
+}
+
+.photo-stage.is-bw img:not(.title-card-zoom),
+.photo-stage.is-bw video {
+  filter: grayscale(1);
+}
+
+.photo-stage.is-bw .title-card-zoom {
+  filter: grayscale(1) blur(28px);
 }
 
 @media (prefers-reduced-motion: reduce) {

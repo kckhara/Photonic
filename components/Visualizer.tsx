@@ -85,6 +85,8 @@ export function Visualizer({
   playback,
   holdPhotos = false,
   previewMode = false,
+  allowClips = true,
+  layoutReady = true,
   visualMode = "photos",
   colorMode = "bw",
   onShownPhotos,
@@ -94,9 +96,14 @@ export function Visualizer({
   playback: PlaybackSample | null;
   // True while the no-lyrics sentence is on screen. Photos wait.
   holdPhotos?: boolean;
-  // True while Spotify is playing a 30-second preview. Photos follow
-  // the beat instead of the lyric timestamps.
+  // True while Spotify is playing a 30-second preview, or while a phone
+  // has not yet played past one. Photos follow the beat.
   previewMode?: boolean;
+  // False until a full song is confirmed. Clips stay unmounted so a
+  // phone cannot flash a black video over the photo.
+  allowClips?: boolean;
+  // False for the first paint, before we know if this is a phone.
+  layoutReady?: boolean;
   // Photos, clips, or clips only on repeated words. See the plan, 5.7.
   visualMode?: VisualMode;
   // Black and white, or the photos and clips in their own color.
@@ -114,6 +121,7 @@ export function Visualizer({
   const onShownVideosRef = useRef(onShownVideos);
   const holdPhotosRef = useRef(holdPhotos);
   const previewModeRef = useRef(previewMode);
+  const allowClipsRef = useRef(allowClips);
   const visualModeRef = useRef(visualMode);
 
   const [slides, setSlides] = useState<Slide[]>([]);
@@ -157,6 +165,7 @@ export function Visualizer({
     slidesRef.current = slides;
     holdPhotosRef.current = holdPhotos;
     previewModeRef.current = previewMode;
+    allowClipsRef.current = allowClips;
     visualModeRef.current = visualMode;
   });
 
@@ -734,7 +743,7 @@ export function Visualizer({
       // those clips are timed to the real lyric scenes.
       const beatOnly = previewModeRef.current;
       const mode = visualModeRef.current;
-      const useClips = mode !== "photos" && !beatOnly;
+      const useClips = mode !== "photos" && !beatOnly && allowClipsRef.current;
       let scenes = currentSong?.scenes ?? [];
       if (currentSong && beatOnly) {
         if (beatSong !== currentSong) {
@@ -947,10 +956,14 @@ export function Visualizer({
   // No photos: nothing to draw. A centered line explains that.
   if (!hasPhotos) return null;
 
-  const showTitle = titleHeld && !noLyrics && !beatOnly && !holdPhotos;
+  const showTitle =
+    layoutReady && titleHeld && !noLyrics && !beatOnly && !holdPhotos;
   // Video and Mix need the players mounted even before the first photo,
-  // so the next clip can download during the title card.
+  // so the next clip can download during the title card. Not on a phone
+  // preview: mounting a clip there flashes black over the picture.
   const mayPlayClips =
+    layoutReady &&
+    allowClips &&
     visualMode !== "photos" &&
     !beatOnly &&
     song.scenes.some((scene) => sceneShowsClip(scene, visualMode));
@@ -963,8 +976,8 @@ export function Visualizer({
 
   return (
     <div
-      className={`pointer-events-none fixed inset-0 z-0 overflow-hidden${
-        colorMode === "bw" ? " grayscale" : ""
+      className={`photo-stage pointer-events-none fixed inset-0 z-0 overflow-hidden${
+        colorMode === "bw" ? " is-bw" : ""
       }`}
       style={{ backgroundColor: holdPhotos ? "var(--color-bg-black)" : placeholder }}
       aria-hidden="true"
@@ -1133,7 +1146,6 @@ function TitleCard({
           src={song.albumCoverUrl}
           alt=""
           className="title-card-zoom absolute inset-0 h-full w-full object-cover"
-          style={{ filter: "blur(28px)" }}
         />
       ) : (
         <div className="absolute inset-0 bg-[var(--color-bg-black)]" />

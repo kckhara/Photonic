@@ -92,13 +92,12 @@ export default function Home() {
   const [holdPhotos, setHoldPhotos] = useState(false);
   const [showNoLyricsSentence, setShowNoLyricsSentence] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
-  // Phones use the same layout breakpoint as the CSS. Spotify's embed
-  // on a phone often reports the full song length while only playing
-  // the 30-second preview, so the lyric intro (a blurred album cover)
-  // would cover the photos for the whole clip.
-  const [narrowLayout, setNarrowLayout] = useState(false);
+  // Phones include landscape, which is wider than the layout breakpoint.
+  // Spotify on a phone often reports the full song length while only
+  // playing the 30-second preview. Until that preview is over, photos
+  // stay on the beat: no album cover, no clips.
+  const [phoneLayout, setPhoneLayout] = useState<boolean | null>(null);
   // True once a phone has been playing for longer than a preview.
-  // Until then, photos stay on the beat instead of the album cover.
   // Spotify's position is not used here: one high reading would
   // drop the photos and bring the flashing cover back.
   const [passedPreview, setPassedPreview] = useState(false);
@@ -169,8 +168,10 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const query = window.matchMedia("(max-width: 760px)");
-    const sync = () => setNarrowLayout(query.matches);
+    const query = window.matchMedia(
+      "(max-width: 760px), ((hover: none) and (pointer: coarse))",
+    );
+    const sync = () => setPhoneLayout(query.matches);
     sync();
     query.addEventListener("change", sync);
     return () => query.removeEventListener("change", sync);
@@ -452,8 +453,11 @@ export default function Home() {
         playback={playback}
         holdPhotos={holdPhotos}
         previewMode={
-          previewMode || (narrowLayout && !passedPreview && Boolean(song))
+          previewMode ||
+          (phoneLayout === true && !passedPreview && Boolean(song))
         }
+        allowClips={phoneLayout === false || passedPreview}
+        layoutReady={phoneLayout !== null}
         visualMode={song?.lyricsType === "none" ? "photos" : visualMode}
         colorMode={colorMode}
         onShownPhotos={onShownPhotos}
