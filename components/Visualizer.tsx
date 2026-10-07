@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { classifyPlayback } from "@/lib/preview";
+import { PREVIEW_MAX_MS, classifyPlayback } from "@/lib/preview";
 import { beatOnlyScenes, isTitleCardMoment } from "@/lib/scenes";
 import {
   clipTimeSeconds,
@@ -47,11 +47,12 @@ import type {
  * of the song the page holds a black screen and a short sentence
  * (holdPhotos). Photos and video wait, then start from that moment.
  *
- * A Spotify preview is different. The clip is often from the middle of
- * the song, but the clock starts at 0, so lyric times would be wrong.
- * Photos still change on the beat. A song with no lyrics keeps the
- * black screen for the first 5 seconds of that clock, then the photos
- * start. Clips stay off in preview mode: the lyric times wouldn't match.
+ * A Spotify preview is often from the middle of the song, and the
+ * embed clock starts at 0. When we know where that clip starts, photos
+ * follow the real lyric times plus that offset. Otherwise they change
+ * on the beat. A song with no lyrics keeps the black screen for the
+ * first 5 seconds of the embed clock, then the photos start. Clips stay
+ * off in preview mode.
  *
  * Video mode (and Mix) plays one muted clip per scene. The frame is how
  * far the song is into that scene, looping if the file is shorter.
@@ -235,11 +236,14 @@ export function Visualizer({
     // Built once per song, not on every frame.
     let beatSong: SongPackage | null = null;
     let beatScenes: Scene[] = [];
-    // Preview clocks from Spotify jump around. Photos follow this
-    // clock instead, so a jump can't swap the picture mid-fade.
+    // Used only when we don't know where the preview starts. Spotify's
+    // clock jumps, so this one moves a frame at a time.
     let beatElapsed = 0;
     let beatStamp = 0;
     let beatWasPlaying = false;
+    // How far into the preview file we last trusted. A spike past the
+    // clip is ignored so the photos stay on the lyric that's playing.
+    let lastClipMs = 0;
     // True while a clip is covering the photos, so we can catch the
     // picture up when the clip leaves.
     let photosHeld = false;
@@ -742,42 +746,57 @@ export function Visualizer({
     const tick = () => {
       const currentSong = songRef.current;
       const sample = playbackRef.current;
-      // Preview clips don't line up with lyric times. Use one beat-based
-      // sequence instead of the lyric scenes. Moving footage stays off —
-      // those clips are timed to the real lyric scenes.
+      // Clips stay off during a preview. Their times belong to the
+      // full song, and a phone flashes black when one is mounted.
       const beatOnly = previewModeRef.current;
       const mode = visualModeRef.current;
       const useClips = mode !== "photos" && !beatOnly && allowClipsRef.current;
+      // The embed clock starts at 0. previewStartMs is where that clip
+      // sits in the real song, so lyric times line up with the audio.
+      const previewStart = currentSong?.previewStartMs;
+      const syncedPreview =
+        beatOnly && previewStart != null && Number.isFinite(previewStart);
       let scenes = currentSong?.scenes ?? [];
-      if (currentSong && beatOnly) {
-        if (beatSong !== currentSong) {
-          beatSong = currentSong;
-          beatScenes = beatOnlyScenes(currentSong.scenes, currentSong.durationMs);
-          beatElapsed = 0;
-          beatWasPlaying = false;
-        }
-        scenes = beatScenes;
+      if (currentSong && beatSong !== currentSong) {
+        beatSong = currentSong;
+        beatElapsed = 0;
+        beatWasPlaying = false;
+        lastClipMs = 0;
+        beatScenes = beatOnlyScenes(currentSong.scenes, currentSong.durationMs);
       }
+      if (beatOnly && !syncedPreview) scenes = beatScenes;
 
-      // Advance only while the preview is actually playing, and only
-      // by a frame or so. A late report must not skip ahead.
+      // Advance only while the unsynced preview is actually playing, and
+      // only by a frame or so. A late report must not skip ahead.
       const beatNow = performance.now();
-      if (beatOnly && beatWasPlaying) {
+      if (beatOnly && !syncedPreview && beatWasPlaying) {
         beatElapsed += Math.min(250, Math.max(0, beatNow - beatStamp));
       }
       beatStamp = beatNow;
-      beatWasPlaying = beatOnly && Boolean(sample?.isPlaying);
+      beatWasPlaying = beatOnly && !syncedPreview && Boolean(sample?.isPlaying);
       const beatPositionMs = beatElapsed;
+
+      // Embed position for a preview, measured from the start of the clip.
+      // Anything past the clip is a jump in Spotify's clock, not the song.
+      function previewPositionMs(): number {
+        const reported = sample ? estimatePositionMs(sample) : lastClipMs;
+        if (reported >= 0 && reported <= PREVIEW_MAX_MS + 2_000) {
+          lastClipMs = reported;
+        }
+        return (previewStart ?? 0) + lastClipMs;
+      }
 
       // Sentence is still up. Fetch the next photos quietly so the first
       // one can fade in as soon as the sentence leaves. This includes a
       // preview: the black screen lasts until the playhead passes 5 seconds.
       if (holdPhotosRef.current && currentSong) {
-        const positionMs = beatOnly
-          ? beatPositionMs
-          : sample
-            ? estimatePositionMs(sample)
-            : 0;
+        const positionMs = syncedPreview
+          ? previewPositionMs()
+          : beatOnly
+            ? beatPositionMs
+            : sample
+              ? estimatePositionMs(sample)
+              : 0;
         // The black screen covers this stretch. Stop any clip that was
         // already up, so a rewind into the first 5 seconds goes quiet.
         hideClip(false);
@@ -808,11 +827,13 @@ export function Visualizer({
           hideClip(false);
         }
       } else {
-        const positionMs = beatOnly
-          ? beatPositionMs
-          : sample
-            ? estimatePositionMs(sample)
-            : 0;
+        const positionMs = syncedPreview
+          ? previewPositionMs()
+          : beatOnly
+            ? beatPositionMs
+            : sample
+              ? estimatePositionMs(sample)
+              : 0;
         const playing = Boolean(sample?.isPlaying);
         clockScenes = scenes;
         clockPosition = positionMs;

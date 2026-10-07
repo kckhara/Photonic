@@ -116,6 +116,9 @@ export type SongPackage = {
   albumCoverUrl: string;
   // Length of the song in milliseconds (1 second = 1000).
   durationMs: number;
+  // Where the 30-second Spotify preview starts in the full song.
+  // Missing when we could not read it. Zero means the preview is the intro.
+  previewStartMs?: number;
   // Tempo after the cleanup rules in lib/tempo.ts.
   bpm: number;
   lyricsType: LyricsType;

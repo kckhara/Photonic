@@ -586,6 +586,9 @@ async function fetchSongPackage(
     albumCoverUrl: body.albumCoverUrl ?? "",
     durationMs: body.durationMs ?? 0,
     bpm: body.bpm ?? 120,
+    ...(typeof body.previewStartMs === "number" && body.previewStartMs >= 0
+      ? { previewStartMs: body.previewStartMs }
+      : {}),
     lyricsType: body.lyricsType ?? "none",
     scenes: body.scenes ?? [],
     photosBusy: body.photosBusy === true,

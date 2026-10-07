@@ -2,6 +2,7 @@ import { getDeezerTrack, type DeezerTrackDetails } from "@/lib/deezer";
 import { getLyrics, type Lyrics } from "@/lib/lrclib";
 import { attachPhotos, attachVideos, isPexelsBusy } from "@/lib/pexels";
 import { scenesFromLyrics } from "@/lib/scenes";
+import { findPreviewStartMs } from "@/lib/preview-offset";
 import { findSpotifyTrackIdByIsrc } from "@/lib/spotify";
 import { cleanBpm } from "@/lib/tempo";
 import type { Scene, SongPackage, SpotifyLookup } from "@/lib/types";
@@ -66,6 +67,13 @@ export async function GET(
     const durationMs = track.durationSeconds * 1000;
     // Missing, 0, or nonsense tempo becomes 120. See cleanBpm.
     const bpm = cleanBpm(track.bpm);
+    // The preview file is small. Ask for its start while photos load.
+    const previewPromise = spotify.spotifyId
+      ? findPreviewStartMs(spotify.spotifyId).catch((error: unknown) => {
+          console.error("Preview start lookup failed", error);
+          return null;
+        })
+      : Promise.resolve(null);
     const { scenes, photosBusy } = await scenesWithPhotos(
       // Plain lyrics are spread evenly in here. No lyrics comes back empty,
       // and scenesWithPhotos fills that with curated photos.
@@ -78,6 +86,7 @@ export async function GET(
       durationMs,
       bpm,
     );
+    const previewStartMs = await previewPromise;
 
     const song: SongPackage = {
       deezerId: track.id,
@@ -89,6 +98,7 @@ export async function GET(
       albumCoverUrl: track.albumCoverUrl,
       durationMs,
       bpm,
+      ...(previewStartMs != null ? { previewStartMs } : {}),
       lyricsType: lyrics.lyricsType,
       scenes,
       ...(photosBusy ? { photosBusy: true } : {}),
