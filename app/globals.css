@@ -104,6 +104,25 @@ body {
   transform: none;
 }
 
+.spotify-hint-slot {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--motion-expand) var(--ease-control);
+}
+
+.spotify-hint-slot.is-in {
+  grid-template-rows: 1fr;
+}
+
+.spotify-hint-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.spotify-hint-clip .spotify-login-hint {
+  margin-bottom: var(--space-stack-gap);
+}
+
 /* Hold the gap while the next song's embed is still loading. */
 .home-player.is-in:not(:has(.spotify-embed)) .spotify-slot {
   min-height: var(--space-spotify-height);
@@ -665,30 +684,9 @@ body {
   border: 0;
 }
 
-.login-dialog {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  width: min(
-    var(--space-about-modal-width),
-    calc(100vw - 2 * var(--space-about-button-right))
-  );
-  margin: auto;
-  padding: var(--space-about-modal-padding-top) var(--space-about-modal-padding-x)
-    var(--space-about-modal-padding-bottom);
-  border: var(--border-width) solid var(--color-border-subtle);
-  border-radius: var(--radius-about-modal);
-  background: var(--color-surface-overlay);
-  color: var(--color-text-primary);
-  box-shadow: var(--shadow-overlay);
-}
-
-.login-dialog::backdrop {
-  background: var(--color-modal-scrim);
-}
-
-.login-dialog-copy {
+.spotify-login-hint {
   margin: 0;
+  text-align: center;
   font-size: var(--font-size-prompt-body);
   font-weight: var(--font-weight-prompt-body);
   line-height: var(--line-height-prompt-body);
@@ -696,52 +694,16 @@ body {
   color: var(--color-text-primary);
 }
 
-.login-dialog-action,
-.login-dialog-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: var(--space-prompt-button-height);
-  padding: 0 var(--space-prompt-button-padding-x);
-  border-radius: var(--radius-prompt-button);
-  font-family: var(--font-family-ui);
-  cursor: pointer;
+.spotify-login-hint a {
+  color: var(--color-link);
+  text-underline-offset: var(--space-underline-offset);
 }
 
-.login-dialog-action {
-  margin-top: var(--space-about-modal-stack);
-  border: 0;
-  background: var(--color-button-filled);
-  color: var(--color-text-on-selected);
-  font-size: var(--font-size-button-filled);
-  font-weight: var(--font-weight-button-filled);
-  letter-spacing: var(--letter-spacing-button-filled);
-  line-height: var(--line-height-button-filled);
-  text-decoration: none;
+.spotify-login-hint a:hover {
+  color: var(--color-link-hover);
 }
 
-.login-dialog-action:hover {
-  background: var(--color-button-filled-hover);
-}
-
-.login-dialog-close {
-  margin-top: var(--space-prompt-button-gap);
-  border: var(--border-width) solid var(--color-outline);
-  background: transparent;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-button-outlined);
-  font-weight: var(--font-weight-button-outlined);
-  letter-spacing: var(--letter-spacing-button-outlined);
-  line-height: var(--line-height-button-outlined);
-}
-
-.login-dialog-close:hover {
-  background: var(--color-hover-outlined);
-}
-
-.login-dialog-action:focus-visible,
-.login-dialog-close:focus-visible {
+.spotify-login-hint a:focus-visible {
   outline: var(--focus-ring-width) solid var(--color-focus-ring);
   outline-offset: var(--focus-ring-offset);
 }
@@ -1157,6 +1119,7 @@ body {
   .home-search-slot,
   .home-player,
   .home-player .spotify-slot,
+  .spotify-hint-slot,
   .home-controls-lower,
   .toggle-slot {
     transition: none;

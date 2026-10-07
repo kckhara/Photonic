@@ -13,7 +13,6 @@ import { AboutButton } from "@/components/AboutButton";
 import { Credits } from "@/components/Credits";
 import { NoLyricsMessage, NO_LYRICS_INTRO_MS } from "@/components/NoLyricsMessage";
 import { PlayerBar, type PlayerCommand } from "@/components/PlayerBar";
-import { SpotifyLoginModal } from "@/components/SpotifyLoginModal";
 import { SearchBox } from "@/components/SearchBox";
 import { Visualizer } from "@/components/Visualizer";
 import type { SearchHit } from "@/lib/deezer";
@@ -42,10 +41,8 @@ import type {
  * Any movement brings search and the filters back.
  * This file runs in the browser because it has to remember the chosen song.
  *
- * When they pick a song or musician and this visit has not already
- * played a full song, a modal asks them to log in. They can close it
- * and keep the preview. If Spotify then plays the whole song, the
- * modal closes on its own. Photos keep playing behind it.
+ * If Spotify is only playing a 30-second preview, a line under the
+ * player offers a login link. Photos keep playing behind it.
  *
  * When a full song finishes, a credits screen covers the pictures.
  * Search stays at the top so another song can be chosen. A preview
@@ -82,14 +79,6 @@ export default function Home() {
   const previewModeRef = useRef(false);
   const heardPlaybackRef = useRef(false);
   const lastVerdictRef = useRef<PlaybackKind>("unknown");
-  // True once this visit has played a full song, so a later pick
-  // doesn't ask them to log in again.
-  const spotifyFullRef = useRef(false);
-  // The pick they closed the login modal for. A new pick can ask again.
-  const loginDismissedPickRef = useRef(0);
-  // Set when they open Spotify's login, so coming back reloads the player.
-  const awaitingLoginRef = useRef(false);
-  const commandNonceRef = useRef(0);
 
   const [pick, setPick] = useState<{
     hit: SearchHit;
@@ -102,7 +91,6 @@ export default function Home() {
   const [holdPhotos, setHoldPhotos] = useState(false);
   const [showNoLyricsSentence, setShowNoLyricsSentence] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
-  const [loginOpen, setLoginOpen] = useState(false);
   const [playerCommand, setPlayerCommand] = useState<PlayerCommand | null>(null);
   const [showCredits, setShowCredits] = useState(false);
   // Copied when the song ends, then updated if the last photo finishes
@@ -130,11 +118,9 @@ export default function Home() {
     playbackRef.current = playback;
   });
 
-  // No lyrics: black screen and the sentence for the first 5 seconds
-  // of playback. Pause holds it. Skip and rewind follow the song.
-  // Before the song has actually started, leave the sentence off.
-  // A logged-out phone often sits paused at 0, and the line would
-  // otherwise stay up for the whole visit.
+  // No lyrics: black screen and the sentence while the playhead is still
+  // in the first 5 seconds. Pause holds it. Skip and rewind follow the song.
+  // A 30-second preview uses the same clock, so the sentence is there too.
   useEffect(() => {
     if (!needsNoLyricsMessage(song)) return;
 
@@ -142,12 +128,8 @@ export default function Home() {
     let intro: boolean | null = null;
 
     const tick = () => {
-      const sample = playbackRef.current;
-      const position = estimatePositionMs(sample);
-      const started =
-        (sample?.positionMs ?? 0) > 200 ||
-        Boolean(sample?.isPlaying && position > 200);
-      const next = started && position < NO_LYRICS_INTRO_MS;
+      const position = estimatePositionMs(playbackRef.current);
+      const next = position < NO_LYRICS_INTRO_MS;
       if (next !== intro) {
         intro = next;
         setShowNoLyricsSentence(next);
@@ -176,7 +158,7 @@ export default function Home() {
   // back when the pointer, keyboard, or wheel moves. Wait until the
   // player has moved in, so search doesn't slide away while it loads.
   useEffect(() => {
-    if (!pick || !playerIn || searchOpen || showCredits || loginOpen) return;
+    if (!pick || !playerIn || searchOpen || showCredits) return;
 
     let idle = false;
     let suppressUntil = 0;
@@ -216,58 +198,16 @@ export default function Home() {
       window.clearTimeout(timer);
       for (const name of events) window.removeEventListener(name, wake);
     };
-  }, [pick, playerIn, searchOpen, showCredits, loginOpen]);
-
-  // A login in another tab only reaches this player after the embed
-  // is built again.
-  useEffect(() => {
-    function onReturn() {
-      if (document.visibilityState === "hidden") return;
-      if (!awaitingLoginRef.current) return;
-      awaitingLoginRef.current = false;
-      commandNonceRef.current += 1;
-      setPlayerCommand({
-        kind: "reload",
-        nonce: commandNonceRef.current,
-        positionMs: playbackRef.current?.positionMs ?? 0,
-      });
-    }
-
-    window.addEventListener("focus", onReturn);
-    document.addEventListener("visibilitychange", onReturn);
-    return () => {
-      window.removeEventListener("focus", onReturn);
-      document.removeEventListener("visibilitychange", onReturn);
-    };
-  }, []);
+  }, [pick, playerIn, searchOpen, showCredits]);
 
   function enterPreview() {
     previewModeRef.current = true;
-    spotifyFullRef.current = false;
     setPreviewMode(true);
-    if (loginDismissedPickRef.current !== nextPickId.current) {
-      setLoginOpen(true);
-    }
   }
 
   function enterFullSong() {
     previewModeRef.current = false;
-    spotifyFullRef.current = true;
     setPreviewMode(false);
-    setLoginOpen(false);
-  }
-
-  function dismissLogin() {
-    loginDismissedPickRef.current = nextPickId.current;
-    setControlsIdle(false);
-    setLoginOpen(false);
-    window.setTimeout(() => {
-      document.getElementById("song-search")?.focus();
-    }, 0);
-  }
-
-  function noteLogin() {
-    awaitingLoginRef.current = true;
   }
 
   // Shared "did playback just finish?" check. Returns null when this
@@ -356,11 +296,6 @@ export default function Home() {
   }
 
   function onSelect(hit: SearchHit) {
-    // Logged-out listeners see this as soon as they pick something.
-    // A full song in this visit means they're already logged in, so
-    // later picks stay quiet. If this pick turns out to be the full
-    // song, the modal closes on its own.
-    const showLogin = !spotifyFullRef.current;
     nextPickId.current += 1;
     songRef.current = null;
     setHoldPhotos(false);
@@ -370,7 +305,6 @@ export default function Home() {
     setSong(null);
     setPlayback(null);
     resetPreviewState();
-    setLoginOpen(showLogin);
     shownPhotosRef.current = [];
     shownVideosRef.current = [];
     setControlsIdle(false);
@@ -392,13 +326,16 @@ export default function Home() {
     songRef.current = next;
     setSong(next);
 
-    // The sentence waits until playback is actually underway.
-    // Putting it up now would cover a song that is only waiting
-    // for someone to press play.
+    // The sentence is for a song with no lyrics, while it is still early.
+    // The playhead decides when it leaves, including on a preview.
     if (!needsNoLyricsMessage(next)) {
       setShowNoLyricsSentence(false);
       setHoldPhotos(false);
+      return;
     }
+
+    setHoldPhotos(true);
+    setShowNoLyricsSentence(true);
   }
 
   function onPlayback(sample: PlaybackSample | null) {
@@ -478,6 +415,7 @@ export default function Home() {
                 selection={pick.hit}
                 onSong={onSong}
                 onPlayback={onPlayback}
+                previewMode={previewMode}
                 playerCommand={playerCommand}
                 onVisibleChange={onPlayerVisible}
               />
@@ -510,9 +448,6 @@ export default function Home() {
       </div>
       {showCredits && song && (
         <Credits song={song} photos={creditPhotos} videos={creditVideos} />
-      )}
-      {loginOpen && (
-        <SpotifyLoginModal onClose={dismissLogin} onLogin={noteLogin} />
       )}
       <AboutButton />
     </div>
