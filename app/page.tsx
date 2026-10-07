@@ -123,6 +123,9 @@ export default function Home() {
   const [passedPreview, setPassedPreview] = useState(false);
   const passedPreviewRef = useRef(false);
   const pastPreviewSamplesRef = useRef(0);
+  // True once the playhead has been near the start. A later reading
+  // past a preview only counts if it climbed there, not if it jumped.
+  const sawClipStartRef = useRef(false);
   const [playerCommand, setPlayerCommand] = useState<PlayerCommand | null>(null);
   const [showCredits, setShowCredits] = useState(false);
   // Copied when the song ends, then updated if the last photo finishes
@@ -352,6 +355,7 @@ export default function Home() {
     acceptPlaybackAfterRef.current = 0;
     passedPreviewRef.current = false;
     pastPreviewSamplesRef.current = 0;
+    sawClipStartRef.current = false;
     setPassedPreview(false);
     setPreviewMode(false);
     setPlayerCommand(null);
@@ -409,10 +413,16 @@ export default function Home() {
     if (!sample) return;
 
     const reported = reportedDurationRef.current;
-    // A preview loops back near the start. A single jump past 30 seconds
-    // is the same kind of lie. Only a run of readings past the preview
-    // means this is the full song.
-    if (sample.positionMs > PREVIEW_MAX_MS) {
+    // A preview loops back near the start, or the phone reports a
+    // position in the middle of the song while the clip plays from 0.
+    // Only a playhead that was near the start and then climbed past
+    // the clip is the full song.
+    if (sample.positionMs < 10_000) sawClipStartRef.current = true;
+    if (
+      sawClipStartRef.current &&
+      sample.positionMs > PREVIEW_MAX_MS &&
+      sample.positionMs < PREVIEW_MAX_MS + 15_000
+    ) {
       pastPreviewSamplesRef.current += 1;
     } else {
       pastPreviewSamplesRef.current = 0;

@@ -241,9 +241,12 @@ export function Visualizer({
     let beatElapsed = 0;
     let beatStamp = 0;
     let beatWasPlaying = false;
-    // How far into the preview file we last trusted. A spike past the
-    // clip is ignored so the photos stay on the lyric that's playing.
-    let lastClipMs = 0;
+    // How far the preview clip has actually played. Spotify on a phone
+    // often reports 0 for the whole clip, so this clock keeps the lyric.
+    let clipMs = 0;
+    let clipStamp = 0;
+    let clipWasPlaying = false;
+    let lastRawPosition: number | null = null;
     // True while a clip is covering the photos, so we can catch the
     // picture up when the clip leaves.
     let photosHeld = false;
@@ -761,7 +764,10 @@ export function Visualizer({
         beatSong = currentSong;
         beatElapsed = 0;
         beatWasPlaying = false;
-        lastClipMs = 0;
+        clipMs = 0;
+        clipStamp = 0;
+        clipWasPlaying = false;
+        lastRawPosition = null;
         beatScenes = beatOnlyScenes(currentSong.scenes, currentSong.durationMs);
       }
       if (beatOnly && !syncedPreview) scenes = beatScenes;
@@ -776,14 +782,52 @@ export function Visualizer({
       beatWasPlaying = beatOnly && !syncedPreview && Boolean(sample?.isPlaying);
       const beatPositionMs = beatElapsed;
 
-      // Embed position for a preview, measured from the start of the clip.
-      // Anything past the clip is a jump in Spotify's clock, not the song.
+      // Where the preview is in the real song.
+      // The embed clock often stays at 0 while the clip plays, so the
+      // photos follow the time since play started. A reading that moves
+      // through the clip, or that already sits at the preview in the
+      // full song, replaces that guess.
       function previewPositionMs(): number {
-        const reported = sample ? estimatePositionMs(sample) : lastClipMs;
-        if (reported >= 0 && reported <= PREVIEW_MAX_MS + 2_000) {
-          lastClipMs = reported;
+        const start = previewStart ?? 0;
+        const now = performance.now();
+        const raw =
+          sample && Number.isFinite(sample.positionMs) ? sample.positionMs : null;
+        const playing = Boolean(sample?.isPlaying);
+
+        const inSong =
+          raw != null &&
+          start > PREVIEW_MAX_MS + 3_000 &&
+          raw >= start - 1_500 &&
+          raw <= start + PREVIEW_MAX_MS + 3_000;
+        if (inSong) {
+          const since = playing
+            ? Math.min(1_000, Math.max(0, now - (sample?.receivedAt ?? now)))
+            : 0;
+          lastRawPosition = raw;
+          clipWasPlaying = playing;
+          return raw + since;
         }
-        return (previewStart ?? 0) + lastClipMs;
+
+        if (raw != null && raw >= 0 && raw <= PREVIEW_MAX_MS + 2_000) {
+          const previous = lastRawPosition;
+          lastRawPosition = raw;
+          if (previous != null && raw + 800 < previous) {
+            clipMs = raw;
+            clipStamp = now;
+          } else if (previous == null || raw > previous + 250) {
+            clipMs = raw;
+            clipStamp = sample?.receivedAt ?? now;
+          }
+        }
+
+        if (clipStamp === 0) clipStamp = now;
+        else if (clipWasPlaying) {
+          clipMs += Math.min(2_000, Math.max(0, now - clipStamp));
+        }
+        clipStamp = now;
+        clipWasPlaying = playing;
+        clipMs = Math.max(0, Math.min(PREVIEW_MAX_MS, clipMs));
+        return start + clipMs;
       }
 
       // Sentence is still up. Fetch the next photos quietly so the first
