@@ -97,10 +97,14 @@ export default function Home() {
   // the 30-second preview, so the lyric intro (a blurred album cover)
   // would cover the photos for the whole clip.
   const [narrowLayout, setNarrowLayout] = useState(false);
-  // True once the playhead has moved past a preview on a long timeline.
-  // Until then, a phone shows photos on the beat instead of that cover.
+  // True once a phone has been playing for longer than a preview.
+  // Until then, photos stay on the beat instead of the album cover.
+  // Spotify's position is not used here: one high reading would
+  // drop the photos and bring the flashing cover back.
   const [passedPreview, setPassedPreview] = useState(false);
   const passedPreviewRef = useRef(false);
+  const playedMsRef = useRef(0);
+  const playStampRef = useRef<number | null>(null);
   const [playerCommand, setPlayerCommand] = useState<PlayerCommand | null>(null);
   const [showCredits, setShowCredits] = useState(false);
   // Copied when the song ends, then updated if the last photo finishes
@@ -322,6 +326,8 @@ export default function Home() {
     ignoreEndRef.current = false;
     acceptPlaybackAfterRef.current = 0;
     passedPreviewRef.current = false;
+    playedMsRef.current = 0;
+    playStampRef.current = null;
     setPassedPreview(false);
     setPreviewMode(false);
     setPlayerCommand(null);
@@ -376,14 +382,27 @@ export default function Home() {
     if (sample?.reportedDurationMs && sample.reportedDurationMs > 0) {
       reportedDurationRef.current = sample.reportedDurationMs;
     }
-    if (!sample) return;
+    if (!sample) {
+      playStampRef.current = null;
+      return;
+    }
 
     const reported = reportedDurationRef.current;
+    if (sample.isPlaying) {
+      const stamp = playStampRef.current;
+      if (stamp != null) {
+        const delta = sample.receivedAt - stamp;
+        if (delta > 0 && delta < 2000) playedMsRef.current += delta;
+      }
+      playStampRef.current = sample.receivedAt;
+    } else {
+      playStampRef.current = null;
+    }
     if (
       !passedPreviewRef.current &&
       reported &&
       reported > PREVIEW_MAX_MS &&
-      sample.positionMs > PREVIEW_MAX_MS
+      playedMsRef.current > PREVIEW_MAX_MS
     ) {
       passedPreviewRef.current = true;
       setPassedPreview(true);

@@ -226,6 +226,11 @@ export function Visualizer({
     // Built once per song, not on every frame.
     let beatSong: SongPackage | null = null;
     let beatScenes: Scene[] = [];
+    // Preview clocks from Spotify jump around. Photos follow this
+    // clock instead, so a jump can't swap the picture mid-fade.
+    let beatElapsed = 0;
+    let beatStamp = 0;
+    let beatWasPlaying = false;
     // True while a clip is covering the photos, so we can catch the
     // picture up when the clip leaves.
     let photosHeld = false;
@@ -735,15 +740,31 @@ export function Visualizer({
         if (beatSong !== currentSong) {
           beatSong = currentSong;
           beatScenes = beatOnlyScenes(currentSong.scenes, currentSong.durationMs);
+          beatElapsed = 0;
+          beatWasPlaying = false;
         }
         scenes = beatScenes;
       }
+
+      // Advance only while the preview is actually playing, and only
+      // by a frame or so. A late report must not skip ahead.
+      const beatNow = performance.now();
+      if (beatOnly && beatWasPlaying) {
+        beatElapsed += Math.min(250, Math.max(0, beatNow - beatStamp));
+      }
+      beatStamp = beatNow;
+      beatWasPlaying = beatOnly && Boolean(sample?.isPlaying);
+      const beatPositionMs = beatElapsed;
 
       // Sentence is still up. Fetch the next photos quietly so the first
       // one can fade in as soon as the sentence leaves. This includes a
       // preview: the black screen lasts until the playhead passes 5 seconds.
       if (holdPhotosRef.current && currentSong) {
-        const positionMs = sample ? estimatePositionMs(sample) : 0;
+        const positionMs = beatOnly
+          ? beatPositionMs
+          : sample
+            ? estimatePositionMs(sample)
+            : 0;
         // The black screen covers this stretch. Stop any clip that was
         // already up, so a rewind into the first 5 seconds goes quiet.
         hideClip(false);
@@ -774,7 +795,11 @@ export function Visualizer({
           hideClip(false);
         }
       } else {
-        const positionMs = sample ? estimatePositionMs(sample) : 0;
+        const positionMs = beatOnly
+          ? beatPositionMs
+          : sample
+            ? estimatePositionMs(sample)
+            : 0;
         const playing = Boolean(sample?.isPlaying);
         clockScenes = scenes;
         clockPosition = positionMs;
@@ -1219,11 +1244,10 @@ function FadePhoto({
 
   const fade = `${fadeMs}ms`;
 
+  // No fill behind the picture. A flat color here would hide the photo
+  // underneath for the whole fade, which reads as the screen flashing.
   return (
-    <div
-      className="absolute inset-0"
-      style={{ zIndex, backgroundColor: slide.photo.avgColor }}
-    >
+    <div className="absolute inset-0" style={{ zIndex }}>
       {quickSrc !== slide.photo.src && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
