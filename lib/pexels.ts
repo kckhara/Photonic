@@ -38,9 +38,13 @@
  *
  * Videos (Phase 9B) use the same picture-word and the same API key.
  * Each scene gets one wide clip. Illustrated and cartoon clips are
- * skipped, including every clip from Monstera Production. If nothing
- * is left, that scene keeps its photos. Video searches are remembered
- * for 24 hours too, because photos and videos share one hourly limit.
+ * skipped, including every clip from Monstera Production. A clip whose
+ * page address does not name the picture-word is skipped too. "Tempt"
+ * was playing a close-up of food being served, and that address never
+ * says "tempt". The photo blocklist applies to that address as well.
+ * If nothing is left, that scene keeps its photos. Video searches are
+ * remembered for 24 hours too, because photos and videos share one
+ * hourly limit.
  */
 
 import { unstable_cache } from "next/cache";
@@ -1008,7 +1012,9 @@ const getLandscapeVideos = unstable_cache(
   fetchLandscapeVideos,
   [
     "pexels-videos-landscape",
+    "slug-must-mention-keyword",
     VIDEO_BLOCKLIST.join("|"),
+    PHOTO_BLOCKLIST.join("|"),
     BLOCKED_VIDEOGRAPHER_IDS.join("|"),
     BLOCKED_VIDEOGRAPHER_NAMES.join("|"),
   ],
@@ -1061,7 +1067,7 @@ async function fetchLandscapeVideos(query: string): Promise<VideoClip[]> {
   const seen = new Set<number>();
 
   for (const video of body.videos ?? []) {
-    if (videoIsBlocked(video)) continue;
+    if (videoIsBlocked(video, query)) continue;
     const clip = toClip(video);
     if (!clip || seen.has(clip.id)) continue;
     seen.add(clip.id);
@@ -1075,12 +1081,21 @@ async function fetchLandscapeVideos(query: string): Promise<VideoClip[]> {
  * Illustrated and cartoon clips are not played. The page address is
  * the only description Pexels sends with a video. Monstera Production
  * is skipped even when the address does not say "animation".
+ * The address also has to name the picture-word, and it cannot be on
+ * the photo blocklist. "Tempt" was matching a close-up of food being
+ * served, and that address never says "tempt".
  */
-function videoIsBlocked(video: PexelsVideo): boolean {
+function videoIsBlocked(video: PexelsVideo, query: string): boolean {
   if (videographerIsBlocked(video.user?.id, video.user?.name ?? "")) {
     return true;
   }
-  return videoTextIsBlocked(slugText(video.url ?? ""));
+
+  const slug = slugText(video.url ?? "");
+  if (videoTextIsBlocked(slug) || altIsBlocked(slug)) return true;
+
+  const head = keywordHead(query);
+  if (!head || !altMentionsWord(slug, head)) return true;
+  return false;
 }
 
 /**
