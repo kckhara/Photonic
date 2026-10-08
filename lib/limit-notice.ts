@@ -1,7 +1,7 @@
 /**
  * The line we show when Unsplash answers 403 or Pexels answers 429
  * and this stretch has nothing to play. A clip or a photo that did
- * load stays clear — one provider refusing does not cover the other.
+ * load stays clear, including when the other provider refused.
  */
 
 import { sceneShowsClip } from "@/lib/tempo";
@@ -12,9 +12,9 @@ export const QUOTA_NOTICE =
 
 /**
  * The quota sentence for this moment, or null when a picture or clip
- * is actually on screen. An empty scene after a cap holds the previous
- * photo. A missing clip is mentioned only in Video or Mix, and only on
- * a line that would have played one.
+ * is on screen. An empty scene after a cap holds the previous photo,
+ * and that is when the sentence appears. A photo that did load stays
+ * clear, even when the clip for that line never arrived.
  */
 export function mediaLimitNotice(
   song: Pick<SongPackage, "photosLimited" | "videosLimited" | "quotaExceeded">,
@@ -22,15 +22,12 @@ export function mediaLimitNotice(
   mode: VisualMode,
 ): string | null {
   if (!scene || scene.titleCard || song.quotaExceeded !== true) return null;
-  // A clip that loaded is the proof this stretch is not stuck.
-  if (sceneShowsClip(scene, mode)) return null;
+  // A clip or a photo that loaded is the proof this stretch is not stuck.
+  if (sceneShowsClip(scene, mode) || scene.photos.length > 0) return null;
 
-  const photosShort =
-    song.photosLimited === true && scene.photos.length === 0;
+  const photosShort = song.photosLimited === true;
   const videosShort =
-    song.videosLimited === true &&
-    sceneExpectsClip(scene, mode) &&
-    !scene.video?.src;
+    song.videosLimited === true && sceneExpectsClip(scene, mode);
 
   if (photosShort || videosShort) return QUOTA_NOTICE;
   return null;
