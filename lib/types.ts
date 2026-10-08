@@ -123,8 +123,15 @@ export type SongPackage = {
   bpm: number;
   lyricsType: LyricsType;
   scenes: Scene[];
-  // True when Pexels hit its hourly limit and no photos came back.
+  // True when Pexels hit its limit and no photos came back at all.
   photosBusy?: boolean;
+  // True when Pexels refused at least one photo search for this song.
+  // Later scenes can be empty, so the last photo stays up.
+  photosLimited?: boolean;
+  // True when Pexels refused at least one video search for this song.
+  videosLimited?: boolean;
+  // True when Unsplash answered 403 or Pexels answered 429.
+  quotaExceeded?: boolean;
 };
 
 /**

@@ -742,6 +742,14 @@ body {
   text-align: center;
 }
 
+/* Sits on a photo when a lookup cap freezes the picture or drops a clip. */
+.limit-notice {
+  padding: 14px 22px;
+  border-radius: var(--radius-prompt);
+  background: var(--color-prompt-surface);
+  color: var(--color-text-primary);
+}
+
 /* The three dots after a loading line. They fade in one at a time,
    hold, then start over together. Opacity keeps the line from shifting. */
 .screen-status-dots span {

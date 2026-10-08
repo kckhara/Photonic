@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type RefObject } from "react";
+import { createPortal } from "react-dom";
+import { mediaLimitNotice } from "@/lib/limit-notice";
 import { PREVIEW_MAX_MS, classifyPlayback } from "@/lib/preview";
 import { beatOnlyScenes, isTitleCardMoment } from "@/lib/scenes";
 import {
@@ -130,6 +132,8 @@ export function Visualizer({
   const [shownClips, setShownClips] = useState<VideoClip[]>([]);
   // Stays up through the intro and until the first photo has finished fading in.
   const [titleHeld, setTitleHeld] = useState(true);
+  const [limitNotice, setLimitNotice] = useState<string | null>(null);
+  const limitNoticeRef = useRef<string | null>(null);
   // Which of the two clip players is on screen. The other one downloads
   // the next file so the cut doesn't go black.
   const [frontSlot, setFrontSlot] = useState<0 | 1>(0);
@@ -267,6 +271,12 @@ export function Visualizer({
     // that sits on one frame would otherwise cover the photos for the
     // rest of the line — the chorus just after 0:40 is where that shows up.
     let clipMovedAt = 0;
+
+    function publishLimitNotice(next: string | null) {
+      if (limitNoticeRef.current === next) return;
+      limitNoticeRef.current = next;
+      setLimitNotice(next);
+    }
     let clipMovedTime = -1;
     let clipMovedSrc = "";
 
@@ -844,6 +854,7 @@ export function Visualizer({
         // The black screen covers this stretch. Stop any clip that was
         // already up, so a rewind into the first 5 seconds goes quiet.
         hideClip(false);
+        publishLimitNotice(null);
         warmPhotos(currentSong.scenes, positionMs, currentSong.bpm);
         if (useClips) {
           queueNext(currentSong.scenes, positionMs, mode, "");
@@ -858,6 +869,7 @@ export function Visualizer({
         !sample && !beatOnly && currentSong?.lyricsType !== "none";
 
       if (!currentSong || scenes.length === 0 || waitingForPlayback) {
+        publishLimitNotice(null);
         if (currentSong && !beatOnly) holdTitle(true);
         if (beatOnly) holdTitle(false);
         if (chosenIdRef.current !== undefined || slidesRef.current.length > 0) {
@@ -890,6 +902,7 @@ export function Visualizer({
         // off this stretch, even if one was already on screen. They're
         // still downloaded so the first one is ready when the lyric arrives.
         if (!beatOnly && isTitleCardMoment(currentSong.scenes, positionMs)) {
+          publishLimitNotice(null);
           holdTitle(true);
           hideClip(playing);
           photosHeld = false;
@@ -901,11 +914,24 @@ export function Visualizer({
           if (useClips) queueNext(scenes, positionMs, mode, "");
         } else {
 
-        const scene = useClips ? sceneAtPosition(scenes, positionMs) : null;
+        const scene = sceneAtPosition(scenes, positionMs);
+        publishLimitNotice(
+          mediaLimitNotice(currentSong, scene, useClips ? mode : "photos"),
+        );
+        const clipScene = useClips ? scene : null;
         const wanted =
-          scene && sceneShowsClip(scene, mode) ? (scene.video ?? null) : null;
+          clipScene && sceneShowsClip(clipScene, mode)
+            ? (clipScene.video ?? null)
+            : null;
         const wantedVisible = useClips
-          ? updateClipLayer(wanted, scene, positionMs, playing, scenes, mode)
+          ? updateClipLayer(
+              wanted,
+              clipScene,
+              positionMs,
+              playing,
+              scenes,
+              mode,
+            )
           : false;
 
         if (!useClips) hideClip(playing, true);
@@ -1055,6 +1081,16 @@ export function Visualizer({
     "var(--color-bg-photo-fallback)";
 
   return (
+    <>
+    {limitNotice &&
+      createPortal(
+        <div className="pointer-events-none fixed inset-0 z-[8] flex items-center justify-center px-8 text-center">
+          <p className="screen-status limit-notice" role="status">
+            {limitNotice}
+          </p>
+        </div>,
+        document.body,
+      )}
     <div
       className={`photo-stage pointer-events-none fixed inset-0 z-0 overflow-hidden${
         beatOnly ? " is-preview" : ""
@@ -1114,6 +1150,7 @@ export function Visualizer({
         </>
       )}
     </div>
+    </>
   );
 }
 

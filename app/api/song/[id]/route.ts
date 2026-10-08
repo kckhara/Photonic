@@ -79,7 +79,8 @@ export async function GET(
           return null;
         })
       : Promise.resolve(null);
-    const { scenes, photosBusy } = await scenesWithPhotos(
+    const { scenes, photosBusy, photosLimited, videosLimited, quotaExceeded } =
+      await scenesWithPhotos(
       // Plain lyrics are spread evenly in here. No lyrics comes back empty,
       // and scenesWithPhotos fills that with curated photos.
       scenesFromLyrics({
@@ -107,6 +108,9 @@ export async function GET(
       lyricsType: lyrics.lyricsType,
       scenes,
       ...(photosBusy ? { photosBusy: true } : {}),
+      ...(photosLimited ? { photosLimited: true } : {}),
+      ...(videosLimited ? { videosLimited: true } : {}),
+      ...(quotaExceeded ? { quotaExceeded: true } : {}),
     };
 
     return Response.json(song);
@@ -169,17 +173,27 @@ async function scenesWithPhotos(
   drafts: Scene[],
   durationMs: number,
   bpm: number,
-): Promise<{ scenes: Scene[]; photosBusy: boolean }> {
+): Promise<{
+  scenes: Scene[];
+  photosBusy: boolean;
+  photosLimited: boolean;
+  videosLimited: boolean;
+  quotaExceeded: boolean;
+}> {
   try {
-    return {
-      scenes: await fillScenes(drafts, durationMs, bpm),
-      photosBusy: false,
-    };
+    return await fillScenes(drafts, durationMs, bpm);
   } catch (error) {
     // A bad Pexels key, a Pexels outage, or the hourly limit.
     // Return no photos so the page can say so, and still play the song.
     console.error("Photo lookup failed", error);
-    return { scenes: [], photosBusy: isPexelsBusy(error) };
+    const limited = isPexelsBusy(error);
+    return {
+      scenes: [],
+      photosBusy: limited,
+      photosLimited: limited,
+      videosLimited: false,
+      quotaExceeded: limited,
+    };
   }
 }
 
@@ -187,24 +201,57 @@ async function fillScenes(
   drafts: Scene[],
   durationMs: number,
   bpm: number,
-): Promise<Scene[]> {
-  const withPhotos = await photosForScenes(drafts, durationMs, bpm);
-  if (withPhotos.length === 0) return [];
+): Promise<{
+  scenes: Scene[];
+  photosBusy: boolean;
+  photosLimited: boolean;
+  videosLimited: boolean;
+  quotaExceeded: boolean;
+}> {
+  const photos = await photosForScenes(drafts, durationMs, bpm);
+  const photosBusy =
+    photos.limited && photos.scenes.every((scene) => scene.photos.length === 0);
+
+  if (photos.scenes.length === 0) {
+    return {
+      scenes: [],
+      photosBusy,
+      photosLimited: photos.limited,
+      videosLimited: false,
+      quotaExceeded: photos.limited || photos.unsplashQuota,
+    };
+  }
 
   // Clips share Pexels' hourly limit with the photos. Asking for both at
   // once makes Pexels refuse the rest of the song, and a scene with no
   // photo then holds whatever picture is already on screen. Photos go
   // first. A video failure keeps the photos.
   try {
-    const withVideos = await attachVideos(drafts);
-    if (withVideos.length !== withPhotos.length) return withPhotos;
-    return withPhotos.map((scene, index) => ({
-      ...scene,
-      video: withVideos[index]?.video ?? null,
-    }));
+    const videos = await attachVideos(drafts);
+    const scenes =
+      videos.scenes.length === photos.scenes.length
+        ? photos.scenes.map((scene, index) => ({
+            ...scene,
+            video: videos.scenes[index]?.video ?? null,
+          }))
+        : photos.scenes;
+    return {
+      scenes,
+      photosBusy,
+      photosLimited: photos.limited,
+      videosLimited: videos.limited,
+      quotaExceeded: photos.limited || photos.unsplashQuota || videos.limited,
+    };
   } catch (error) {
     console.error("Video lookup failed", error);
-    return withPhotos;
+    const videosLimited = isPexelsBusy(error);
+    return {
+      scenes: photos.scenes,
+      photosBusy,
+      photosLimited: photos.limited,
+      videosLimited,
+      quotaExceeded: photos.limited || photos.unsplashQuota || videosLimited,
+    };
   }
 }
 
@@ -212,10 +259,10 @@ async function photosForScenes(
   drafts: Scene[],
   durationMs: number,
   bpm: number,
-): Promise<Scene[]> {
+): Promise<{ scenes: Scene[]; limited: boolean; unsplashQuota: boolean }> {
   if (drafts.length > 0) return attachPhotos(drafts, bpm);
 
-  const [scene] = await attachPhotos(
+  const curated = await attachPhotos(
     [
       {
         startMs: 0,
@@ -226,7 +273,14 @@ async function photosForScenes(
     ],
     bpm,
   );
+  const scene = curated.scenes[0];
 
-  if (!scene || scene.photos.length === 0) return [];
-  return [scene];
+  if (!scene || scene.photos.length === 0) {
+    return {
+      scenes: [],
+      limited: curated.limited,
+      unsplashQuota: curated.unsplashQuota,
+    };
+  }
+  return curated;
 }

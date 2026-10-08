@@ -66,13 +66,19 @@ export type UnsplashLookup = {
   photos: Photo[];
   /** True when Unsplash was not used. The caller should keep the Pexels photos. */
   skipped: boolean;
+  /** True when Unsplash answered 403, the demo-app quota. */
+  quota: boolean;
 };
 
 /** Unsplash answered 403 or 429, or rejected the key. One search can stop. */
 class UnsplashUnavailableError extends Error {
-  constructor(message: string) {
+  /** True only for 403, which is how a demo app reports its hourly quota. */
+  readonly quota: boolean;
+
+  constructor(message: string, quota = false) {
     super(message);
     this.name = "UnsplashUnavailableError";
+    this.quota = quota;
   }
 }
 
@@ -88,7 +94,7 @@ export async function searchUnsplash(
   page: number,
 ): Promise<UnsplashLookup> {
   const text = query.trim();
-  if (!text) return { photos: [], skipped: false };
+  if (!text) return { photos: [], skipped: false, quota: false };
 
   if (!process.env.UNSPLASH_ACCESS_KEY?.trim()) {
     if (!missingKeyLogged) {
@@ -97,15 +103,19 @@ export async function searchUnsplash(
         "Unsplash lookup skipped. Add UNSPLASH_ACCESS_KEY to .env.local. Continuing with Pexels.",
       );
     }
-    return { photos: [], skipped: true };
+    return { photos: [], skipped: true, quota: false };
   }
 
   try {
     const photos = await getUnsplashSearch(text, page);
-    return { photos, skipped: false };
+    return { photos, skipped: false, quota: false };
   } catch (error) {
     console.error("Unsplash lookup failed. Continuing with Pexels.", error);
-    return { photos: [], skipped: true };
+    return {
+      photos: [],
+      skipped: true,
+      quota: error instanceof UnsplashUnavailableError && error.quota,
+    };
   }
 }
 
@@ -165,7 +175,14 @@ async function fetchUnsplashSearch(
     );
   }
 
-  if (response.status === 403 || response.status === 429) {
+  if (response.status === 403) {
+    throw new UnsplashUnavailableError(
+      "Unsplash is over its limit. Photos will come from Pexels.",
+      true,
+    );
+  }
+
+  if (response.status === 429) {
     throw new UnsplashUnavailableError(
       "Unsplash is over its limit. Photos will come from Pexels.",
     );

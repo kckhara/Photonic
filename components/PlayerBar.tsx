@@ -13,6 +13,7 @@ import {
   waitForWarmedSpotify,
   warmedSpotifyIsReady,
 } from "@/lib/spotify-embed";
+import { QUOTA_NOTICE } from "@/lib/limit-notice";
 import type { PlaybackSample, SongPackage } from "@/lib/types";
 
 // Spotify's compact player is 152px. A shorter slot crops the album art.
@@ -623,6 +624,9 @@ async function fetchSongPackage(
     lyricsType: body.lyricsType ?? "none",
     scenes: body.scenes ?? [],
     photosBusy: body.photosBusy === true,
+    photosLimited: body.photosLimited === true,
+    videosLimited: body.videosLimited === true,
+    quotaExceeded: body.quotaExceeded === true,
   };
 }
 
@@ -715,8 +719,8 @@ function screenNotices(
   const notices: string[] = [];
   if (!hasPhotos(song)) {
     notices.push(
-      song.photosBusy
-        ? "Photo lookup is busy. Wait a minute, then try this song again."
+      song.quotaExceeded
+        ? QUOTA_NOTICE
         : "We couldn’t load photos for this song. Please try again.",
     );
   }

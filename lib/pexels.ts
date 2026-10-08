@@ -148,6 +148,7 @@ type PhotoSearchGate = {
   search: (query: string, page: number) => Promise<Photo[]>;
   curated: (page: number) => Promise<Photo[]>;
   wasBusy: () => boolean;
+  wasUnsplashQuota: () => boolean;
 };
 
 /**
@@ -160,6 +161,8 @@ function photoSearchGate(): PhotoSearchGate {
   // After Unsplash fails or hits its limit, later scenes skip it.
   // Pexels searches in this song keep going.
   let unsplashOff = false;
+  // Unsplash 403 is the demo-app quota. The page says so.
+  let unsplashQuota = false;
 
   async function guard(load: () => Promise<Photo[]>): Promise<Photo[]> {
     // A saved search still has to run: it answers from the day-long cache
@@ -200,6 +203,7 @@ function photoSearchGate(): PhotoSearchGate {
     const unsplash = unsplashOff
       ? Promise.resolve([] as Photo[])
       : searchUnsplash(query, page).then((result) => {
+          if (result.quota) unsplashQuota = true;
           if (result.skipped) unsplashOff = true;
           return result.photos;
         });
@@ -222,6 +226,7 @@ function photoSearchGate(): PhotoSearchGate {
       return photos;
     },
     wasBusy: () => busy,
+    wasUnsplashQuota: () => unsplashQuota,
   };
 }
 
@@ -230,11 +235,12 @@ function photoSearchGate(): PhotoSearchGate {
  * Scenes are handled in order so a photo used by an earlier scene
  * is not offered to a later one. bpm decides how many photos a scene
  * needs: one for every time the picture will change.
+ * `limited` is true when Pexels refused a search. Scenes already filled stay.
  */
 export async function attachPhotos(
   scenes: Scene[],
   bpm: number,
-): Promise<Scene[]> {
+): Promise<{ scenes: Scene[]; limited: boolean; unsplashQuota: boolean }> {
   const usedIds = new Set<string>();
   // One busy response from Pexels stops later searches in this song.
   // Scenes that already have photos are kept.
@@ -265,11 +271,11 @@ export async function attachPhotos(
     filled.push({ ...scene, photos: choice.photos });
   }
 
-  if (gate.wasBusy() && filled.every((scene) => scene.photos.length === 0)) {
-    throw new PexelsBusyError();
-  }
-
-  return filled;
+  return {
+    scenes: filled,
+    limited: gate.wasBusy(),
+    unsplashQuota: gate.wasUnsplashQuota(),
+  };
 }
 
 type SceneSearch = {
@@ -934,7 +940,17 @@ type PexelsVideoResponse = {
  * A scene with no word (the title card, or curated photos) is left as photos.
  * If a search fails, that word keeps its photos — the song still plays.
  */
-export async function attachVideos(scenes: Scene[]): Promise<Scene[]> {
+export async function attachVideos(
+  scenes: Scene[],
+): Promise<{ scenes: Scene[]; limited: boolean }> {
+  let limited = false;
+
+  async function load(query: string): Promise<VideoClip[]> {
+    const result = await clipsForKeyword(query);
+    if (result.limited) limited = true;
+    return result.clips;
+  }
+
   const queries = [
     ...new Set(
       scenes
@@ -944,7 +960,7 @@ export async function attachVideos(scenes: Scene[]): Promise<Scene[]> {
   ];
 
   await runPool(
-    queries.map((query) => () => clipsForKeyword(query)),
+    queries.map((query) => () => load(query)),
     SEARCH_CONCURRENCY,
   );
 
@@ -958,25 +974,27 @@ export async function attachVideos(scenes: Scene[]): Promise<Scene[]> {
       continue;
     }
 
-    const clips = await clipsForKeyword(keyword);
+    const clips = await load(keyword);
     const clip = clips.find((item) => !usedIds.has(item.id)) ?? null;
     if (clip) usedIds.add(clip.id);
     filled.push({ ...scene, video: clip });
   }
 
-  return filled;
+  return { scenes: filled, limited };
 }
 
 /**
  * Landscape clips for one picture-word. Empty if Pexels has none,
  * or if this one search failed (the photos for that word still work).
  */
-async function clipsForKeyword(query: string): Promise<VideoClip[]> {
+async function clipsForKeyword(
+  query: string,
+): Promise<{ clips: VideoClip[]; limited: boolean }> {
   try {
-    return await getLandscapeVideos(query);
+    return { clips: await getLandscapeVideos(query), limited: false };
   } catch (error) {
     console.error("Video lookup failed", query, error);
-    return [];
+    return { clips: [], limited: isPexelsBusy(error) };
   }
 }
 
