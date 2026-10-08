@@ -90,14 +90,13 @@ function AboutDialog({ onClose }: { onClose: () => void }) {
           the rhythm of the song, filling the screen like scenes from a film.
         </p>
         <p>
-          None of these images were made for this music. They come from
-          different places, different moments, different stories. Put
-          together, the images and music have new meaning.
+          None of these images were made for this music. Put together, the
+          images and music have new meaning.
         </p>
         <p>
-          Sometimes the match is obvious. Sometimes it&apos;s strange.
-          Sometimes it&apos;s just wrong. Either way, you&apos;re watching
-          something that didn&apos;t exist before.
+          Sometimes the match is obvious. Sometimes it&apos;s just wrong.
+          Either way, you&apos;re watching something that didn&apos;t exist
+          before.
         </p>
       </div>
       <hr className="about-dialog-rule" />
