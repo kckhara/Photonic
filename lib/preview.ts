@@ -8,6 +8,8 @@
  * No API keys here. "Log in" opens Spotify's own public login page.
  */
 
+export const SPOTIFY_LOGIN_URL = "https://accounts.spotify.com/login";
+
 // Spotify's preview is about 30 seconds. Anything under this counts as short.
 export const PREVIEW_MAX_MS = 35_000;
 

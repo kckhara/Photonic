@@ -14,6 +14,7 @@ import {
   warmedSpotifyIsReady,
 } from "@/lib/spotify-embed";
 import { QUOTA_NOTICE } from "@/lib/limit-notice";
+import { SPOTIFY_LOGIN_URL } from "@/lib/preview";
 import type { PlaybackSample, SongPackage } from "@/lib/types";
 
 // Spotify's compact player is 152px. A shorter slot crops the album art.
@@ -537,8 +538,6 @@ function SpotifyPlayer({
     </div>
   );
 }
-
-const SPOTIFY_LOGIN_URL = "https://accounts.spotify.com/login";
 
 /** Shown under the player while Spotify is only playing a preview. */
 function PreviewLoginHint() {

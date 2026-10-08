@@ -19,6 +19,7 @@ import type { SearchHit } from "@/lib/deezer";
 import { isPhoneLayout } from "@/lib/phone";
 import {
   PREVIEW_MAX_MS,
+  SPOTIFY_LOGIN_URL,
   classifyPlayback,
   playbackHasEnded,
   type PlaybackKind,
@@ -44,7 +45,9 @@ import type {
  * This file runs in the browser because it has to remember the chosen song.
  *
  * If Spotify is only playing a 30-second preview, a line under the
- * player offers a login link. Photos keep playing behind it.
+ * player offers a login link. Until a full song shows they are logged
+ * in, a line under the search bar offers the same login. Photos keep
+ * playing behind it.
  *
  * When a full song finishes, a credits screen covers the pictures.
  * Search stays at the top so another song can be chosen. A preview
@@ -119,6 +122,9 @@ export default function Home() {
   const [visualMode, setVisualMode] = useState<VisualMode>("mix");
   const [colorMode, setColorMode] = useState<ColorMode>("bw");
   const [searchOpen, setSearchOpen] = useState(false);
+  // Spotify won't say if this browser is logged in. A full song is the
+  // signal that it is. Until then, the line under search stays up.
+  const [spotifyLoggedIn, setSpotifyLoggedIn] = useState(false);
   const [controlsIdle, setControlsIdle] = useState(false);
   const controlsIdleRef = useRef(false);
   controlsIdleRef.current = controlsIdle;
@@ -169,6 +175,10 @@ export default function Home() {
   useEffect(() => {
     if (colorTouchedRef.current) return;
     setColorMode(readColorMode());
+  }, []);
+
+  useEffect(() => {
+    if (readSpotifyLoggedIn()) setSpotifyLoggedIn(true);
   }, []);
 
   useEffect(() => {
@@ -235,11 +245,15 @@ export default function Home() {
   function enterPreview() {
     previewModeRef.current = true;
     setPreviewMode(true);
+    setSpotifyLoggedIn(false);
+    rememberSpotifyLoggedIn(false);
   }
 
   function enterFullSong() {
     previewModeRef.current = false;
     setPreviewMode(false);
+    setSpotifyLoggedIn(true);
+    rememberSpotifyLoggedIn(true);
   }
 
   // Shared "did playback just finish?" check. Returns null when this
@@ -453,6 +467,10 @@ export default function Home() {
     if (creditsOpenRef.current) setCreditVideos(videos);
   }
 
+  // The results list sits in this same spot, so the line steps aside
+  // while someone is choosing and comes back when the list closes.
+  const showSpotifyLogin = !spotifyLoggedIn && !searchOpen;
+
   return (
     <div
       className={`relative min-h-screen${pick && controlsIdle ? " is-controls-idle" : ""}${showCredits ? " is-credits" : ""}`}
@@ -505,12 +523,21 @@ export default function Home() {
             </div>
           </main>
         )}
-        <div className={pick ? "home-controls-lower" : undefined}>
+        <div
+          className={
+            pick
+              ? `home-controls-lower${showSpotifyLogin ? " has-spotify-login" : ""}`
+              : undefined
+          }
+        >
           <div
             className="home-search-slot"
             inert={pick && controlsIdle && !showCredits ? true : undefined}
           >
-            <SearchBox onSelect={onSelect} onOpenChange={onSearchOpenChange} />
+            <div className="home-search-column">
+              <SearchBox onSelect={onSelect} onOpenChange={onSearchOpenChange} />
+              {showSpotifyLogin && <SpotifyLoginNote />}
+            </div>
           </div>
           {!pick && !searchOpen && <HomeIntro />}
           {pick && (
@@ -534,6 +561,38 @@ export default function Home() {
       )}
       <AboutButton />
     </div>
+  );
+}
+
+const SPOTIFY_LOGGED_IN_KEY = "lyric-visualizer:spotify-logged-in";
+
+/** True after a full song played in this tab. A preview clears it. */
+function readSpotifyLoggedIn(): boolean {
+  try {
+    return sessionStorage.getItem(SPOTIFY_LOGGED_IN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function rememberSpotifyLoggedIn(loggedIn: boolean) {
+  try {
+    if (loggedIn) sessionStorage.setItem(SPOTIFY_LOGGED_IN_KEY, "1");
+    else sessionStorage.removeItem(SPOTIFY_LOGGED_IN_KEY);
+  } catch {
+    // The line still follows this page until they leave.
+  }
+}
+
+/** Under the search bar until a full song shows they are logged in. */
+function SpotifyLoginNote() {
+  return (
+    <p className="spotify-login-hint spotify-home-login">
+      For the full experience,{" "}
+      <a href={SPOTIFY_LOGIN_URL} target="_blank" rel="noopener noreferrer">
+        log in to your Spotify account
+      </a>.
+    </p>
   );
 }
 

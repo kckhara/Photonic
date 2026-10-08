@@ -50,6 +50,12 @@ body {
   );
 }
 
+.home-search-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 /* After a song is chosen, search stays put until the player exists.
    The player then opens at the top and search and the filters move
    down with it. Idle slides those controls up behind the player. */
@@ -153,6 +159,22 @@ body {
   transition:
     opacity var(--motion-collapse) var(--ease-control),
     transform var(--motion-collapse) var(--ease-control);
+}
+
+/* The login line adds a row under search. Slide that away too.
+   Two lines covers a wrap on a narrow phone. */
+.is-controls-idle .home-controls-lower.has-spotify-login {
+  --space-login-note: calc(
+    2 * var(--font-size-prompt-body) * var(--line-height-prompt-body)
+  );
+  transform: translateY(
+    calc(
+      -1 * (
+        var(--space-search-height) + var(--space-login-note) +
+          var(--space-toggle-height) + 3 * var(--space-stack-gap)
+      )
+    )
+  );
 }
 
 .home-controls.has-player .home-search-slot,
@@ -741,6 +763,10 @@ body {
 .spotify-login-hint a:focus-visible {
   outline: var(--focus-ring-width) solid var(--color-focus-ring);
   outline-offset: var(--focus-ring-offset);
+}
+
+.spotify-home-login {
+  margin-top: var(--space-stack-gap);
 }
 
 /* Loading, the opening countdown, and player errors share this type. */
