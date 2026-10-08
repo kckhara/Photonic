@@ -5,7 +5,7 @@ import { type NextRequest } from "next/server";
  * GET /api/search?q=radiohead
  *
  * The browser calls this. We ask Deezer, then send back a short list of
- * songs and artists. No API key is involved.
+ * songs and artists. Songs Deezer's search misses are filled in from Spotify.
  */
 export async function GET(request: NextRequest) {
   const query = request.nextUrl.searchParams.get("q")?.trim() ?? "";

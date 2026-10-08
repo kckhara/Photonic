@@ -148,3 +148,92 @@ function wait(ms: number): Promise<void> {
     setTimeout(resolve, ms);
   });
 }
+
+export type SpotifyTrackHit = {
+  title: string;
+  artistName: string;
+  isrc: string;
+};
+
+// Same window as Deezer search. A repeated query should not ask Spotify again.
+const SEARCH_CACHE_SECONDS = 60;
+
+/**
+ * Songs for a typed query. Deezer's own search leaves some real tracks out
+ * (Jesus Christ by Brand New is on Deezer, and still absent from its results).
+ * The ISRC lets us look that recording up on Deezer anyway.
+ * Throws if Spotify is down, so a hiccup is not saved as "no songs".
+ */
+export const searchSpotifyTracks = unstable_cache(
+  lookupSpotifyTracks,
+  ["spotify-track-search"],
+  { revalidate: SEARCH_CACHE_SECONDS },
+);
+
+async function lookupSpotifyTracks(query: string): Promise<SpotifyTrackHit[]> {
+  const token = await getSpotifyAppToken();
+  let lastStatus = 0;
+
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    if (attempt > 1) await wait(200);
+
+    const result = await requestSpotifyTracks(token, query);
+    if (result.status === "ok") return result.tracks;
+    lastStatus = result.status;
+  }
+
+  throw new Error(`Spotify song search failed (${lastStatus}).`);
+}
+
+type TrackSearchResult =
+  | { status: "ok"; tracks: SpotifyTrackHit[] }
+  | { status: number };
+
+async function requestSpotifyTracks(
+  token: string,
+  query: string,
+): Promise<TrackSearchResult> {
+  const url = new URL("https://api.spotify.com/v1/search");
+  url.searchParams.set("q", query);
+  url.searchParams.set("type", "track");
+  url.searchParams.set("limit", "8");
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    cache: "no-store",
+  });
+
+  if (response.status >= 500 && response.status <= 504) {
+    return { status: response.status };
+  }
+
+  if (!response.ok) {
+    throw new Error(`Spotify song search failed (${response.status}).`);
+  }
+
+  const data = (await response.json()) as {
+    tracks?: {
+      items?: Array<{
+        name?: string;
+        external_ids?: { isrc?: string };
+        artists?: Array<{ name?: string }>;
+      }>;
+    };
+  };
+
+  const tracks: SpotifyTrackHit[] = [];
+  for (const item of data.tracks?.items ?? []) {
+    const isrc = item.external_ids?.isrc?.trim();
+    const title = item.name?.trim();
+    const artistName = (item.artists ?? [])
+      .map((artist) => artist.name?.trim())
+      .filter((name): name is string => Boolean(name))
+      .join(", ");
+    if (!isrc || !title || !artistName) continue;
+    tracks.push({ title, artistName, isrc });
+  }
+
+  return { status: "ok", tracks };
+}
