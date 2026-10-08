@@ -37,16 +37,22 @@
  * - If that is also empty, use general (curated) photos that this song hasn't used.
  *
  * Videos (Phase 9B) use the same picture-word and the same API key.
- * Each scene gets one wide clip. If Pexels has none, that scene keeps
- * its photos. Video searches are remembered for 24 hours too, because
- * photos and videos share one hourly limit.
+ * Each scene gets one wide clip. Illustrated and cartoon clips are
+ * skipped, including every clip from Monstera Production. If nothing
+ * is left, that scene keeps its photos. Video searches are remembered
+ * for 24 hours too, because photos and videos share one hourly limit.
  */
 
 import { unstable_cache } from "next/cache";
 import {
+  BLOCKED_VIDEOGRAPHER_IDS,
+  BLOCKED_VIDEOGRAPHER_NAMES,
   PHOTO_BLOCKLIST,
+  VIDEO_BLOCKLIST,
   altIsBlocked,
   altMentionsWord,
+  videoTextIsBlocked,
+  videographerIsBlocked,
 } from "@/lib/photo-blocklist";
 import { styleWordAt } from "@/lib/style-words";
 import {
@@ -912,7 +918,7 @@ type PexelsVideo = {
   url?: string;
   image?: string;
   duration?: number;
-  user?: { name?: string; url?: string };
+  user?: { id?: number; name?: string; url?: string };
   video_files?: PexelsVideoFile[];
 };
 
@@ -977,9 +983,17 @@ async function clipsForKeyword(query: string): Promise<VideoClip[]> {
 // Same idea as the photo cache: remember the chosen files for a day.
 // The key stays in the request header, which Next.js will not store,
 // so we store the short list of clips instead.
+// The video blocklist is part of the cache name, same as photos.
+// Editing those lists starts a fresh lookup instead of replaying
+// yesterday's illustrated clips.
 const getLandscapeVideos = unstable_cache(
   fetchLandscapeVideos,
-  ["pexels-videos-landscape"],
+  [
+    "pexels-videos-landscape",
+    VIDEO_BLOCKLIST.join("|"),
+    BLOCKED_VIDEOGRAPHER_IDS.join("|"),
+    BLOCKED_VIDEOGRAPHER_NAMES.join("|"),
+  ],
   { revalidate: ONE_DAY_SECONDS },
 );
 
@@ -1029,6 +1043,7 @@ async function fetchLandscapeVideos(query: string): Promise<VideoClip[]> {
   const seen = new Set<number>();
 
   for (const video of body.videos ?? []) {
+    if (videoIsBlocked(video)) continue;
     const clip = toClip(video);
     if (!clip || seen.has(clip.id)) continue;
     seen.add(clip.id);
@@ -1036,6 +1051,18 @@ async function fetchLandscapeVideos(query: string): Promise<VideoClip[]> {
   }
 
   return clips;
+}
+
+/**
+ * Illustrated and cartoon clips are not played. The page address is
+ * the only description Pexels sends with a video. Monstera Production
+ * is skipped even when the address does not say "animation".
+ */
+function videoIsBlocked(video: PexelsVideo): boolean {
+  if (videographerIsBlocked(video.user?.id, video.user?.name ?? "")) {
+    return true;
+  }
+  return videoTextIsBlocked(slugText(video.url ?? ""));
 }
 
 /**

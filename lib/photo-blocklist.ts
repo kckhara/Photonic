@@ -316,3 +316,71 @@ function wordsIn(text: string): string[] {
     .split(/[^a-z0-9]+/)
     .filter((word) => word.length > 0);
 }
+
+/**
+ * Animated illustrations and cartoon clips. Pexels video search has no
+ * description, so this is checked against the page address.
+ * "illustration-of-savings" is read as "illustration of savings".
+ *
+ * Same matching rules as the photo list above. Edit this list freely.
+ * The next video lookup uses it. A live clip of a plant called monstera
+ * is not on this list.
+ *
+ * Monstera Production (Pexels user 3372733) uploads this same flat,
+ * cartoon illustration style, including clips whose address does not say
+ * "animation". Every clip from that account is skipped.
+ */
+export const VIDEO_BLOCKLIST = [
+  "animation",
+  "animations",
+  "animated",
+  "illustration",
+  "illustrations",
+  "illustrated",
+  "illustrator",
+  "cartoon",
+  "cartoons",
+  "anime",
+  "motion graphic",
+  "motion graphics",
+];
+
+export const BLOCKED_VIDEOGRAPHER_IDS = [3372733];
+
+export const BLOCKED_VIDEOGRAPHER_NAMES = ["monstera production"];
+
+/** True when this page address is an illustrated or cartoon clip. */
+export function videoTextIsBlocked(text: string): boolean {
+  return textMatchesList(text, VIDEO_BLOCKLIST);
+}
+
+/** True when this Pexels account is blocked from video search. */
+export function videographerIsBlocked(
+  id: number | undefined,
+  name: string,
+): boolean {
+  if (typeof id === "number" && BLOCKED_VIDEOGRAPHER_IDS.includes(id)) {
+    return true;
+  }
+
+  const normalized = name.trim().toLowerCase().replace(/\s+/g, " ");
+  return BLOCKED_VIDEOGRAPHER_NAMES.includes(normalized);
+}
+
+function textMatchesList(text: string, entries: readonly string[]): boolean {
+  const normalized = text.toLowerCase().replace(/[-_]+/g, " ");
+  const words = wordsIn(normalized);
+
+  for (const entry of entries) {
+    const needle = entry.toLowerCase();
+
+    if (needle.includes(" ")) {
+      if (normalized.includes(needle)) return true;
+      continue;
+    }
+
+    if (words.includes(needle)) return true;
+  }
+
+  return false;
+}
