@@ -168,7 +168,7 @@ function scenesFromPlainLyrics(plain: string, durationMs: number): Scene[] {
 // [00:12.34] or [00:12:34], possibly several stamps on one line.
 const TIMESTAMP = /\[(\d+):(\d{2})(?:[.:](\d{1,3}))?\]/g;
 
-function parseSyncedLyrics(
+export function parseSyncedLyrics(
   synced: string,
 ): Array<{ startMs: number; text: string }> {
   const lines: Array<{ startMs: number; text: string }> = [];

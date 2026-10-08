@@ -67,9 +67,14 @@ export async function GET(
     const durationMs = track.durationSeconds * 1000;
     // Missing, 0, or nonsense tempo becomes 120. See cleanBpm.
     const bpm = cleanBpm(track.bpm);
-    // The preview file is small. Ask for its start while photos load.
+    // Ask where the preview starts while photos load. Without a tag in
+    // the file, this transcribes the clip once and matches the lyrics.
     const previewPromise = spotify.spotifyId
-      ? findPreviewStartMs(spotify.spotifyId).catch((error: unknown) => {
+      ? findPreviewStartMs(
+          spotify.spotifyId,
+          lyrics.lyricsType === "synced" ? lyrics.syncedLyrics : null,
+          durationMs,
+        ).catch((error: unknown) => {
           console.error("Preview start lookup failed", error);
           return null;
         })
