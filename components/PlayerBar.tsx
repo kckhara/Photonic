@@ -3,6 +3,16 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { SearchHit } from "@/lib/deezer";
+import {
+  abandonWarmedSpotify,
+  claimWarmedSpotify,
+  hasWarmedSpotify,
+  loadSpotifyIframeApi,
+  releaseWarmedSpotify,
+  spotifyGestureOwnsPlayback,
+  waitForWarmedSpotify,
+  warmedSpotifyIsReady,
+} from "@/lib/spotify-embed";
 import type { PlaybackSample, SongPackage } from "@/lib/types";
 
 // Spotify's compact player is 152px. A shorter slot crops the album art.
@@ -38,26 +48,11 @@ type EmbedController = {
     event: string,
     handler: (event: { data?: PlaybackUpdate } | PlaybackUpdate) => void,
   ) => void;
-};
-
-type IFrameAPI = {
-  createController: (
-    element: HTMLElement,
-    options: { uri: string; width?: string; height?: string },
-    callback: (controller: EmbedController) => void,
+  removeListener: (
+    event: string,
+    handler: (event: { data?: PlaybackUpdate } | PlaybackUpdate) => void,
   ) => void;
 };
-
-// Kept separate from the /test page's types. Both talk to the same
-// Spotify script, but they don't have to share one TypeScript shape.
-type SpotifyGlobals = {
-  onSpotifyIframeApiReady?: (api: IFrameAPI) => void;
-  __SPOTIFY_IFRAME_API__?: IFrameAPI;
-};
-
-function spotifyGlobals(): SpotifyGlobals {
-  return window as unknown as SpotifyGlobals;
-}
 
 type LoadStatus = "loading" | "ready" | "error";
 
@@ -291,185 +286,221 @@ function SpotifyPlayer({
     const host = hostRef.current;
     if (!host) return;
 
-    // Spotify swaps this empty div for its iframe, so start clean every time.
-    const element = document.createElement("div");
-    host.replaceChildren(element);
-
     let cancelled = false;
+    let claimed = false;
     let stallTimer = 0;
+    let detach = () => {};
 
-    function onApiReady(api: IFrameAPI) {
-      const spotifyWindow = spotifyGlobals();
-      spotifyWindow.__SPOTIFY_IFRAME_API__ = api;
-      if (cancelled) return;
+    function watch(controller: EmbedController, fromWarm: boolean) {
+      controllerRef.current = controller;
 
-      api.createController(
-        element,
-        {
-          uri: `spotify:track:${spotifyId}`,
-          width: "100%",
-          height: EMBED_HEIGHT,
-        },
-        (controller) => {
-          if (cancelled) {
-            destroyController(controller);
-            return;
+      // One play() only. A second one, while the first is still
+      // starting, leaves the button on pause and the song silent.
+      let playRequested = false;
+      function requestPlay() {
+        if (fromWarm && spotifyGestureOwnsPlayback(spotifyId)) return;
+        if (playRequested) return;
+        playRequested = true;
+        tryPlay(controller);
+      }
+
+      // "Reload player" builds a new embed. Spotify starts it at 0,
+      // so we jump back to the moment they were hearing.
+      let seekAttempts = 0;
+      function resumeAtSavedPosition(currentPositionMs?: number) {
+        if (cancelled || startAtMs <= 500) return;
+        if (
+          currentPositionMs != null &&
+          Math.abs(currentPositionMs - startAtMs) < 1500
+        ) {
+          return;
+        }
+        if (seekAttempts >= 2) return;
+        seekAttempts += 1;
+        controller.seek(startAtMs / 1000);
+        if (autoplay) tryPlay(controller);
+      }
+
+      // Spotify sometimes says "playing" after the clip has finished, and
+      // covers the play button with a signup card. It can also say
+      // "playing" when the browser never started the audio. Either way
+      // the playhead stops moving. We hold the photos and swap in a
+      // fresh player whose play button still works.
+      let lastPosition: number | null = null;
+      let recovered = false;
+      // True once the playhead has actually moved. A fresh embed
+      // opens already paused, and that must not rebuild the player.
+      let heardPlaying = false;
+
+      function recover(positionMs: number) {
+        if (cancelled || recovered) return;
+        recovered = true;
+        window.clearTimeout(stallTimer);
+        onResetRef.current(positionMs);
+      }
+
+      function armStallTimer(data: PlaybackUpdate, positionMs: number) {
+        window.clearTimeout(stallTimer);
+        stallTimer = window.setTimeout(() => {
+          if (cancelled || recovered) return;
+          // Spotify sometimes goes quiet for a few seconds in the
+          // middle of a song. That is not a pause. Stopping the
+          // clock there leaves whatever picture just appeared stuck
+          // while the music continues.
+          if (positionMs >= 1500) return;
+          emitRef.current(
+            { ...data, isPaused: true, position: positionMs },
+            positionMs,
+            false,
+          );
+          if (autoplay) recover(0);
+        }, STALL_MS);
+      }
+
+      const onPlayback = (
+        event: { data?: PlaybackUpdate } | PlaybackUpdate,
+      ) => {
+        // Ignore reports from a player we're already tearing down.
+        if (cancelled) return;
+
+        const data = readPlayback(event);
+        playbackRef.current = data;
+        const positionMs =
+          typeof data.position === "number" ? data.position : 0;
+        const duration =
+          typeof data.duration === "number" ? data.duration : 0;
+        // The last report of a preview lands on the length itself and
+        // leaves isPaused false. Treat that as stopped.
+        const atEnd = duration > 5000 && positionMs >= duration - 30;
+        const paused = data.isPaused === true || atEnd;
+        const buffering = data.isBuffering === true;
+        const reported = paused ? { ...data, isPaused: true } : data;
+
+        // Hand the photos this reading, stamped with the time it arrived
+        // so they can glide forward until Spotify speaks again.
+        emitRef.current(
+          reported,
+          atEnd ? duration : positionMs,
+          !paused && !buffering,
+        );
+        resumeAtSavedPosition(positionMs);
+
+        if (!paused && !buffering && lastPosition != null && positionMs > lastPosition + 400) {
+          heardPlaying = true;
+        }
+
+        if (atEnd) {
+          window.clearTimeout(stallTimer);
+          // The signup card replaces the controls. A new embed brings
+          // the play button back, at the start of the clip.
+          if (duration < PREVIEW_EMBED_MS) recover(0);
+          return;
+        }
+
+        if (paused || buffering) {
+          window.clearTimeout(stallTimer);
+          lastPosition = positionMs;
+          // Pausing a preview does the same thing: the play button is
+          // gone, so build a new one parked where they stopped.
+          if (
+            data.isPaused === true &&
+            heardPlaying &&
+            duration > 5000 &&
+            duration < PREVIEW_EMBED_MS
+          ) {
+            recover(positionMs);
           }
+          return;
+        }
 
-          controllerRef.current = controller;
+        if (lastPosition !== positionMs) {
+          lastPosition = positionMs;
+          armStallTimer(data, positionMs);
+        }
+      };
 
-          // "Reload player" builds a new embed. Spotify starts it at 0,
-          // so we jump back to the moment they were hearing.
-          let seekAttempts = 0;
-          function resumeAtSavedPosition(currentPositionMs?: number) {
-            if (cancelled || startAtMs <= 500) return;
-            if (
-              currentPositionMs != null &&
-              Math.abs(currentPositionMs - startAtMs) < 1500
-            ) {
-              return;
-            }
-            if (seekAttempts >= 2) return;
-            seekAttempts += 1;
-            controller.seek(startAtMs / 1000);
-            if (autoplay) tryPlay(controller);
-          }
+      // Start once Spotify says the embed is ready. Calling play earlier
+      // as well sends a second play, and the button can end up showing
+      // pause while nothing is audible. A phone tap may already have
+      // called play() on a preloaded embed.
+      const onReady = () => {
+        if (cancelled) return;
+        if (startAtMs > 500) resumeAtSavedPosition();
+        else if (autoplay) requestPlay();
+      };
 
-          // Spotify sometimes says "playing" after the clip has finished, and
-          // covers the play button with a signup card. It can also say
-          // "playing" when the browser never started the audio. Either way
-          // the playhead stops moving. We hold the photos and swap in a
-          // fresh player whose play button still works.
-          let lastPosition: number | null = null;
-          let recovered = false;
-          // True once the playhead has actually moved. A fresh embed
-          // opens already paused, and that must not rebuild the player.
-          let heardPlaying = false;
+      controller.addListener("playback_update", onPlayback);
+      controller.addListener("ready", onReady);
+      if (startAtMs > 500) resumeAtSavedPosition();
+      // The preload's ready event already fired, so this is the only
+      // chance to start it — unless the tap already did.
+      if (fromWarm && autoplay && warmedSpotifyIsReady(spotifyId)) requestPlay();
 
-          function recover(positionMs: number) {
-            if (cancelled || recovered) return;
-            recovered = true;
-            window.clearTimeout(stallTimer);
-            onResetRef.current(positionMs);
-          }
-
-          function armStallTimer(data: PlaybackUpdate, positionMs: number) {
-            window.clearTimeout(stallTimer);
-            stallTimer = window.setTimeout(() => {
-              if (cancelled || recovered) return;
-              // Spotify sometimes goes quiet for a few seconds in the
-              // middle of a song. That is not a pause. Stopping the
-              // clock there leaves whatever picture just appeared stuck
-              // while the music continues.
-              if (positionMs >= 1500) return;
-              emitRef.current(
-                { ...data, isPaused: true, position: positionMs },
-                positionMs,
-                false,
-              );
-              if (autoplay) recover(0);
-            }, STALL_MS);
-          }
-
-          controller.addListener("playback_update", (event) => {
-            // Ignore reports from a player we're already tearing down.
-            if (cancelled) return;
-
-            const data = readPlayback(event);
-            playbackRef.current = data;
-            const positionMs =
-              typeof data.position === "number" ? data.position : 0;
-            const duration =
-              typeof data.duration === "number" ? data.duration : 0;
-            // The last report of a preview lands on the length itself and
-            // leaves isPaused false. Treat that as stopped.
-            const atEnd = duration > 5000 && positionMs >= duration - 30;
-            const paused = data.isPaused === true || atEnd;
-            const buffering = data.isBuffering === true;
-            const reported = paused ? { ...data, isPaused: true } : data;
-
-            // Hand the photos this reading, stamped with the time it arrived
-            // so they can glide forward until Spotify speaks again.
-            emitRef.current(
-              reported,
-              atEnd ? duration : positionMs,
-              !paused && !buffering,
-            );
-            resumeAtSavedPosition(positionMs);
-
-            if (!paused && !buffering && lastPosition != null && positionMs > lastPosition + 400) {
-              heardPlaying = true;
-            }
-
-            if (atEnd) {
-              window.clearTimeout(stallTimer);
-              // The signup card replaces the controls. A new embed brings
-              // the play button back, at the start of the clip.
-              if (duration < PREVIEW_EMBED_MS) recover(0);
-              return;
-            }
-
-            if (paused || buffering) {
-              window.clearTimeout(stallTimer);
-              lastPosition = positionMs;
-              // Pausing a preview does the same thing: the play button is
-              // gone, so build a new one parked where they stopped.
-              if (
-                data.isPaused === true &&
-                heardPlaying &&
-                duration > 5000 &&
-                duration < PREVIEW_EMBED_MS
-              ) {
-                recover(positionMs);
-              }
-              return;
-            }
-
-            if (lastPosition !== positionMs) {
-              lastPosition = positionMs;
-              armStallTimer(data, positionMs);
-            }
-          });
-
-          // Start once Spotify says the embed is ready. Calling play earlier
-          // as well sends a second play, and the button can end up showing
-          // pause while nothing is audible.
-          controller.addListener("ready", () => {
-            if (cancelled) return;
-            if (startAtMs > 500) resumeAtSavedPosition();
-            else if (autoplay) tryPlay(controller);
-          });
-          if (startAtMs > 500) resumeAtSavedPosition();
-        },
-      );
+      return () => {
+        controller.removeListener("playback_update", onPlayback);
+        controller.removeListener("ready", onReady);
+      };
     }
 
-    const spotifyWindow = spotifyGlobals();
+    function startFresh() {
+      if (!host) return;
+      // Spotify swaps this empty div for its iframe, so start clean every time.
+      const element = document.createElement("div");
+      host.replaceChildren(element);
 
-    // Reuse the script if another song (or the /test page) already loaded it.
-    if (spotifyWindow.__SPOTIFY_IFRAME_API__) {
-      onApiReady(spotifyWindow.__SPOTIFY_IFRAME_API__);
+      void loadSpotifyIframeApi().then((api) => {
+        if (cancelled) return;
+
+        api.createController(
+          element,
+          {
+            uri: `spotify:track:${spotifyId}`,
+            width: "100%",
+            height: EMBED_HEIGHT,
+          },
+          (controller) => {
+            const embed = controller as EmbedController;
+            if (cancelled) {
+              destroyController(embed);
+              return;
+            }
+            detach = watch(embed, false);
+          },
+        );
+      });
+    }
+
+    // A phone tap already started this embed. Use that iframe instead of
+    // building another one after the song package arrives.
+    const useWarm = autoplay && startAtMs <= 500 && hasWarmedSpotify(spotifyId);
+    if (useWarm) {
+      void waitForWarmedSpotify(spotifyId).then((preloaded) => {
+        if (cancelled) return;
+        const controller = preloaded ? claimWarmedSpotify(spotifyId, host) : null;
+        if (!controller) {
+          abandonWarmedSpotify(spotifyId);
+          if (!cancelled) startFresh();
+          return;
+        }
+        claimed = true;
+        detach = watch(controller as EmbedController, true);
+      });
     } else {
-      spotifyWindow.onSpotifyIframeApiReady = onApiReady;
-
-      const existing = document.querySelector(
-        'script[src="https://open.spotify.com/embed/iframe-api/v1"]',
-      );
-      if (!existing) {
-        const script = document.createElement("script");
-        script.src = "https://open.spotify.com/embed/iframe-api/v1";
-        script.async = true;
-        document.body.appendChild(script);
-      }
+      startFresh();
     }
 
     return () => {
       cancelled = true;
       window.clearTimeout(stallTimer);
+      detach();
       publish(null);
-      destroyController(controllerRef.current);
+      if (claimed) {
+        releaseWarmedSpotify(spotifyId);
+      } else {
+        destroyController(controllerRef.current);
+        host.replaceChildren();
+      }
       controllerRef.current = null;
-      host.replaceChildren();
     };
   }, [spotifyId, startAtMs, autoplay]);
 

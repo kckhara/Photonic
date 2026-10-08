@@ -684,6 +684,28 @@ body {
   border: 0;
 }
 
+/* Preloaded phone embeds. Laid out, not display:none, so a tap can
+   start audio before the player slot takes the iframe. */
+.spotify-warm-pool {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: min(100vw, var(--space-column-width));
+  height: var(--space-spotify-height);
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.spotify-warm-slot,
+.spotify-warm-slot iframe {
+  display: block;
+  width: 100%;
+  height: var(--space-spotify-height);
+  border: 0;
+}
+
 .spotify-login-hint {
   margin: 0;
   text-align: center;

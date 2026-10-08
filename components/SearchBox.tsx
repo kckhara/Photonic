@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import type { ArtistHit, SearchHit, SongHit } from "@/lib/deezer";
+import { playWarmedSpotify, prepareMobilePlayback } from "@/lib/spotify-embed";
 
 // Wait this long after the last keystroke before searching.
 // Stops us from calling the server on every single letter.
@@ -42,6 +43,9 @@ export function SearchBox({
 
   const boxRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Spotify ids for the open results, so a tap can start playback
+  // before the song package comes back. Keys are "song:1" / "artist:2".
+  const playbackIds = useRef(new Map<string, string>());
   const [seenReset, setSeenReset] = useState(resetKey);
 
   // A reset clears the field. Focus happens after paint, below.
@@ -124,6 +128,16 @@ export function SearchBox({
     };
   }, [query]);
 
+  // Phones block playback that starts after this list closes, so preload
+  // each row's Spotify embed while the person is still choosing.
+  useEffect(() => {
+    const controller = new AbortController();
+    void prepareMobilePlayback(songs, artists, controller.signal).then((ids) => {
+      if (!controller.signal.aborted) playbackIds.current = ids;
+    });
+    return () => controller.abort();
+  }, [songs, artists]);
+
   // Close the list when the click lands outside the search box.
   useEffect(() => {
     function onPointerDown(event: MouseEvent) {
@@ -137,6 +151,9 @@ export function SearchBox({
   }, []);
 
   function choose(hit: SearchHit) {
+    // play() has to run inside this tap. After await, a phone will ignore it.
+    const spotifyId = playbackIds.current.get(`${hit.type}:${hit.id}`);
+    if (spotifyId) playWarmedSpotify(spotifyId);
     setIsOpen(false);
     onSelect(hit);
   }
@@ -394,8 +411,10 @@ function ResultRow({
       id={id}
       role="option"
       aria-selected={active}
-      // mousedown (not click) so the row is chosen before the input loses focus.
-      onMouseDown={(event) => {
+      // pointerdown (not click) so the row is chosen before the input
+      // loses focus, and so play() still counts as the tap on a phone.
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
         event.preventDefault();
         onChoose();
       }}

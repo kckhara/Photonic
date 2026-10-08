@@ -16,6 +16,7 @@ import { PlayerBar, type PlayerCommand } from "@/components/PlayerBar";
 import { SearchBox } from "@/components/SearchBox";
 import { Visualizer } from "@/components/Visualizer";
 import type { SearchHit } from "@/lib/deezer";
+import { isPhoneLayout } from "@/lib/phone";
 import {
   PREVIEW_MAX_MS,
   classifyPlayback,
@@ -52,25 +53,6 @@ import type {
 
 // How long the page stays still before the search and filters hide.
 const IDLE_MS = 3000;
-
-/**
- * True on a phone, including landscape and "Request Desktop Website".
- * Those modes are wider than 760px and can report a fine pointer, so
- * width alone misses them. A missed phone plays video clips over the
- * preview, and the clips flash black.
- */
-function readPhoneLayout(): boolean {
-  if (window.matchMedia("(max-width: 760px)").matches) return true;
-  if (window.matchMedia("(pointer: coarse)").matches) return true;
-
-  const ua = navigator.userAgent;
-  if (/iPhone|iPod|Android.+Mobile|webOS|BlackBerry|IEMobile|Opera Mini/i.test(ua)) {
-    return true;
-  }
-
-  const shortSide = Math.min(window.screen.width, window.screen.height);
-  return navigator.maxTouchPoints > 0 && shortSide > 0 && shortSide <= 900;
-}
 
 export default function Home() {
   // pickId changes on every choice, even the same row twice, so the player
@@ -194,7 +176,7 @@ export default function Home() {
       window.matchMedia("(max-width: 760px)"),
       window.matchMedia("(pointer: coarse)"),
     ];
-    const sync = () => setPhoneLayout(readPhoneLayout());
+    const sync = () => setPhoneLayout(isPhoneLayout());
     sync();
     for (const query of queries) query.addEventListener("change", sync);
     window.addEventListener("orientationchange", sync);
