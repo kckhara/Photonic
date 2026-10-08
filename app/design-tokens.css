@@ -82,6 +82,13 @@
   --line-height-homepage-intro: 1.65;
   --letter-spacing-homepage-intro: 0.005em;
 
+  /* Homepage note under the intro, phones only */
+  --font-size-homepage-desktop-note: 11px;
+  --font-weight-homepage-desktop-note: 500;
+  --line-height-homepage-desktop-note: 1.4;
+  --letter-spacing-homepage-desktop-note: 0.16em;
+  --color-text-desktop-note: rgba(255, 255, 255, 0.55);
+
   /* Loading message */
   --font-size-loading: 18px;
   --font-weight-loading: 400;
@@ -215,6 +222,7 @@
   --space-prompt-button-height: 40px;
   --space-prompt-button-padding-x: 24px;
   --space-homepage-header-gap: 16px;
+  --space-homepage-desktop-note-gap: 32px;
   --space-homepage-header-width: 375.584px;
   /* Just wide enough for "…pair music with images" to stay one line.
      Any wider and the second sentence climbs up; any narrower wraps early. */

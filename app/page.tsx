@@ -549,6 +549,7 @@ function HomeIntro() {
           What happens when you pair music with images that were never
           meant to be together?
         </p>
+        <p className="home-intro-desktop-note">Best experienced on desktop.</p>
       </div>
     </div>
   );

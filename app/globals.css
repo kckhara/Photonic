@@ -230,6 +230,19 @@ body {
   color: var(--color-text-secondary);
 }
 
+.home-intro-desktop-note {
+  display: none;
+  margin: var(--space-homepage-desktop-note-gap) 0 0;
+  text-align: center;
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-homepage-desktop-note);
+  font-weight: var(--font-weight-homepage-desktop-note);
+  line-height: var(--line-height-homepage-desktop-note);
+  letter-spacing: var(--letter-spacing-homepage-desktop-note);
+  text-transform: uppercase;
+  color: var(--color-text-desktop-note);
+}
+
 .about-button {
   position: fixed;
   z-index: 30;
@@ -1106,6 +1119,10 @@ body {
   .home-intro-title {
     width: 88%;
     font-size: clamp(31px, 9vw, var(--font-size-homepage-header));
+  }
+
+  .home-intro-desktop-note {
+    display: block;
   }
 
   .no-lyrics-overlay {
