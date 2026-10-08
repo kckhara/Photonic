@@ -588,9 +588,9 @@ function rememberSpotifyLoggedIn(loggedIn: boolean) {
 function SpotifyLoginNote() {
   return (
     <p className="spotify-login-hint spotify-home-login">
-      For the full experience,{" "}
+      For the full experience, log in to{" "}
       <a href={SPOTIFY_LOGIN_URL} target="_blank" rel="noopener noreferrer">
-        log in to your Spotify account
+        Spotify
       </a>.
     </p>
   );
