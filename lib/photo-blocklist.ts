@@ -47,6 +47,8 @@ export const PHOTO_BLOCKLIST = [
   "Thankful",
   "Thankyou",
   "Scrabbles",
+  "Handwriting",
+  "Handwritten",
   // Plurals and other names for the same thing. "sign" does not match "signs".
   "signs",
   "placard",
