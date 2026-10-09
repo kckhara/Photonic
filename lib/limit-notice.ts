@@ -8,7 +8,7 @@ import { sceneShowsClip } from "@/lib/tempo";
 import type { Scene, SongPackage, VisualMode } from "@/lib/types";
 
 export const QUOTA_NOTICE =
-  "We exceeded our quota for image requests. Please try again in an hour. Sorry!";
+  "We exceeded our quota for image and/or video requests. Try again in an hour. Maybe I need to apply for higher limits...";
 
 /**
  * The quota sentence for this moment, or null when a picture or clip
