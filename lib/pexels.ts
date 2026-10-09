@@ -38,9 +38,11 @@
  *
  * Videos (Phase 9B) use the same picture-word and the same API key.
  * Each scene gets one wide clip. Illustrated and cartoon clips are
- * skipped, including every clip from Monstera Production. If nothing
- * is left, that scene keeps its photos. Video searches are remembered
- * for 24 hours too, because photos and videos share one hourly limit.
+ * skipped, including every clip from Monstera Production. Accounts in
+ * PREFERRED_VIDEOGRAPHERS play first, in that list's order, when their
+ * clip is already in the search results. If nothing is left, that scene
+ * keeps its photos. Video searches are remembered for 24 hours too,
+ * because photos and videos share one hourly limit.
  */
 
 import { unstable_cache } from "next/cache";
@@ -48,9 +50,11 @@ import {
   BLOCKED_VIDEOGRAPHER_IDS,
   BLOCKED_VIDEOGRAPHER_NAMES,
   PHOTO_BLOCKLIST,
+  PREFERRED_VIDEOGRAPHERS,
   VIDEO_BLOCKLIST,
   altIsBlocked,
   altMentionsWord,
+  preferredVideographerRank,
   videoTextIsBlocked,
   videographerIsBlocked,
 } from "@/lib/photo-blocklist";
@@ -1001,9 +1005,9 @@ async function clipsForKeyword(
 // Same idea as the photo cache: remember the chosen files for a day.
 // The key stays in the request header, which Next.js will not store,
 // so we store the short list of clips instead.
-// The video blocklist is part of the cache name, same as photos.
-// Editing those lists starts a fresh lookup instead of replaying
-// yesterday's illustrated clips.
+// The video blocklist and the preferred accounts are part of the cache
+// name, same as photos. Editing those lists starts a fresh lookup
+// instead of replaying yesterday's illustrated clips.
 const getLandscapeVideos = unstable_cache(
   fetchLandscapeVideos,
   [
@@ -1011,6 +1015,7 @@ const getLandscapeVideos = unstable_cache(
     VIDEO_BLOCKLIST.join("|"),
     BLOCKED_VIDEOGRAPHER_IDS.join("|"),
     BLOCKED_VIDEOGRAPHER_NAMES.join("|"),
+    PREFERRED_VIDEOGRAPHERS.join("|"),
   ],
   { revalidate: ONE_DAY_SECONDS },
 );
@@ -1067,6 +1072,14 @@ async function fetchLandscapeVideos(query: string): Promise<VideoClip[]> {
     seen.add(clip.id);
     clips.push(clip);
   }
+
+  // Preferred accounts stay in list order. Everyone else keeps the
+  // order Pexels sent, behind those accounts.
+  clips.sort(
+    (a, b) =>
+      preferredVideographerRank(a.videographerUrl, a.videographer) -
+      preferredVideographerRank(b.videographerUrl, b.videographer),
+  );
 
   return clips;
 }

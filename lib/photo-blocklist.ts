@@ -349,6 +349,21 @@ export const BLOCKED_VIDEOGRAPHER_IDS = [3372733];
 
 export const BLOCKED_VIDEOGRAPHER_NAMES = ["monstera production"];
 
+/**
+ * Accounts whose clips play before everyone else's.
+ * Paste a profile address, one per entry. Higher in the list wins.
+ * The next video lookup uses the new list. An account is chosen only
+ * when their clip is already in the search results for that lyric word.
+ * https://www.pexels.com/@arthousestudio/
+ */
+export const PREFERRED_VIDEOGRAPHERS = [
+  "https://www.pexels.com/@arthousestudio/",
+  "https://www.pexels.com/@mesut-yalcin-1233429888/",
+  "https://www.pexels.com/@koolshooters/",
+  "https://www.pexels.com/@cottonbro/",
+  "https://www.pexels.com/@kelly/",
+];
+
 /** True when this page address is an illustrated or cartoon clip. */
 export function videoTextIsBlocked(text: string): boolean {
   return textMatchesList(text, VIDEO_BLOCKLIST);
@@ -365,6 +380,53 @@ export function videographerIsBlocked(
 
   const normalized = name.trim().toLowerCase().replace(/\s+/g, " ");
   return BLOCKED_VIDEOGRAPHER_NAMES.includes(normalized);
+}
+
+/**
+ * Where this account sits in PREFERRED_VIDEOGRAPHERS.
+ * Accounts that are not on the list share one rank after the last
+ * preferred account, so they stay in Pexels' order.
+ */
+export function preferredVideographerRank(url: string, name: string): number {
+  const actual = accountKeys(url, name);
+
+  for (let index = 0; index < PREFERRED_VIDEOGRAPHERS.length; index++) {
+    const entry = PREFERRED_VIDEOGRAPHERS[index];
+    const handle = handleFrom(entry);
+    const keys = handle ? [handle] : accountKeys("", entry);
+    if (keys.some((key) => actual.some((candidate) => sameAccount(key, candidate)))) {
+      return index;
+    }
+  }
+
+  return PREFERRED_VIDEOGRAPHERS.length;
+}
+
+/** Profile handle, such as "arthousestudio" from a Pexels profile address. */
+function handleFrom(value: string): string {
+  const match = value.trim().toLowerCase().match(/@([a-z0-9._-]+)/);
+  return match?.[1] ?? "";
+}
+
+function accountKeys(url: string, name: string): string[] {
+  const keys: string[] = [];
+  const handle = handleFrom(url);
+  if (handle) keys.push(handle);
+
+  const normalized = name.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!normalized) return keys;
+  keys.push(normalized.replace(/ /g, ""));
+  keys.push(normalized.replace(/ /g, "-"));
+  return keys;
+}
+
+/**
+ * The same account, including when Pexels appends "-12345" to the handle.
+ */
+function sameAccount(a: string, b: string): boolean {
+  if (a === b) return true;
+  const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
+  return longer.startsWith(shorter) && /^-\d+$/.test(longer.slice(shorter.length));
 }
 
 function textMatchesList(text: string, entries: readonly string[]): boolean {
