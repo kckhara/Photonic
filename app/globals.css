@@ -165,7 +165,8 @@ body {
    Two lines covers a wrap on a narrow phone. */
 .is-controls-idle .home-controls-lower.has-spotify-login {
   --space-login-note: calc(
-    2 * var(--font-size-prompt-body) * var(--line-height-prompt-body)
+    2 * var(--font-size-homepage-desktop-note) *
+      var(--line-height-homepage-desktop-note)
   );
   transform: translateY(
     calc(
@@ -254,15 +255,6 @@ body {
 
 .home-intro-desktop-note {
   display: none;
-  margin: var(--space-homepage-desktop-note-gap) 0 0;
-  text-align: center;
-  font-family: var(--font-family-ui);
-  font-size: var(--font-size-homepage-desktop-note);
-  font-weight: var(--font-weight-homepage-desktop-note);
-  line-height: var(--line-height-homepage-desktop-note);
-  letter-spacing: var(--letter-spacing-homepage-desktop-note);
-  text-transform: uppercase;
-  color: var(--color-text-desktop-note);
 }
 
 .about-button {
@@ -767,6 +759,12 @@ body {
 
 .spotify-home-login {
   margin-top: var(--space-stack-gap);
+  font-size: var(--font-size-homepage-desktop-note);
+  font-weight: var(--font-weight-homepage-desktop-note);
+  line-height: var(--line-height-homepage-desktop-note);
+  letter-spacing: var(--letter-spacing-homepage-desktop-note);
+  text-transform: uppercase;
+  color: var(--color-text-desktop-note);
 }
 
 /* Loading, the opening countdown, and player errors share this type. */
@@ -1148,7 +1146,7 @@ body {
   }
 
   .home-intro-desktop-note {
-    display: block;
+    display: inline;
   }
 
   .no-lyrics-overlay {

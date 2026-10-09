@@ -222,7 +222,6 @@
   --space-prompt-button-height: 40px;
   --space-prompt-button-padding-x: 24px;
   --space-homepage-header-gap: 16px;
-  --space-homepage-desktop-note-gap: 32px;
   --space-homepage-header-width: 375.584px;
   /* Just wide enough for "…pair music with images" to stay one line.
      Any wider and the second sentence climbs up; any narrower wraps early. */
