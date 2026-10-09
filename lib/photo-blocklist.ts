@@ -35,6 +35,7 @@ export const PHOTO_BLOCKLIST = [
   "letters",
   "typography",
   "sign",
+  "spell",
   // Plurals and other names for the same thing. "sign" does not match "signs".
   "signs",
   "placard",
@@ -119,6 +120,7 @@ export const PHOTO_BLOCKLIST = [
   "hdd",
   "ssd",
   "nvme",
+  "smartphone",
 ];
 
 // The object is the whole picture: a product on a stand, not a scene.
