@@ -49,8 +49,6 @@ import { unstable_cache } from "next/cache";
 import {
   BLOCKED_VIDEOGRAPHER_IDS,
   BLOCKED_VIDEOGRAPHER_NAMES,
-  PHOTO_BLOCKLIST,
-  PREFERRED_VIDEOGRAPHERS,
   VIDEO_BLOCKLIST,
   altIsBlocked,
   altMentionsWord,
@@ -510,20 +508,20 @@ function mentioning(photos: Photo[], keyword: string): Photo[] {
   return photos.filter((photo) => altMentionsWord(photo.alt, head));
 }
 
-// The blocklist is part of the cache name. Editing lib/photo-blocklist.ts
-// starts a fresh lookup instead of reusing yesterday's photos.
+// The blocklist is applied when the two lists are combined, below.
+// Editing it does not start a new Pexels lookup. A photo already saved
+// is dropped on the next song if its description is now on the list.
 // "provider-id" drops photos remembered before each one was tagged
 // pexels or unsplash.
 // The key sits in the Authorization header, so Next.js will not keep the
-// raw request. We remember the filtered list itself for a day instead.
+// raw request. We remember the search page itself for a day instead.
 const getFilteredSearch = unstable_cache(
   fetchFilteredSearch,
   [
-    "pexels-search-filtered-pages",
+    "pexels-search-pages",
     "provider-id",
     // Cached photos need a width and a photographer id for the stock score.
     "width-photographer-id",
-    PHOTO_BLOCKLIST.join("|"),
   ],
   { revalidate: ONE_DAY_SECONDS },
 );
@@ -534,7 +532,7 @@ const getCuratedPage = unstable_cache(
   { revalidate: ONE_DAY_SECONDS },
 );
 
-/** Up to 20 landscape photos whose descriptions are not on the blocklist. */
+/** Up to 20 landscape photos. The blocklist runs later, outside this cache. */
 async function fetchFilteredSearch(
   query: string,
   page: number,
@@ -552,7 +550,6 @@ async function fetchFilteredSearch(
   for (const photo of photos) {
     if (seen.has(photo.id)) continue;
     seen.add(photo.id);
-    if (photoIsBlocked(photo, query)) continue;
     kept.push(photo);
   }
 
@@ -995,7 +992,8 @@ async function clipsForKeyword(
   query: string,
 ): Promise<{ clips: VideoClip[]; limited: boolean }> {
   try {
-    return { clips: await getLandscapeVideos(query), limited: false };
+    const clips = await getLandscapeVideos(query);
+    return { clips: withPreferredAccountsFirst(clips), limited: false };
   } catch (error) {
     console.error("Video lookup failed", query, error);
     return { clips: [], limited: isPexelsBusy(error) };
@@ -1005,9 +1003,10 @@ async function clipsForKeyword(
 // Same idea as the photo cache: remember the chosen files for a day.
 // The key stays in the request header, which Next.js will not store,
 // so we store the short list of clips instead.
-// The video blocklist and the preferred accounts are part of the cache
-// name, same as photos. Editing those lists starts a fresh lookup
-// instead of replaying yesterday's illustrated clips.
+// The cartoon blocklist is part of the cache name. Editing that list
+// starts a fresh lookup instead of replaying yesterday's illustrated clips.
+// Preferred accounts are ordered after this cache, so editing that list
+// does not ask Pexels again.
 const getLandscapeVideos = unstable_cache(
   fetchLandscapeVideos,
   [
@@ -1015,7 +1014,6 @@ const getLandscapeVideos = unstable_cache(
     VIDEO_BLOCKLIST.join("|"),
     BLOCKED_VIDEOGRAPHER_IDS.join("|"),
     BLOCKED_VIDEOGRAPHER_NAMES.join("|"),
-    PREFERRED_VIDEOGRAPHERS.join("|"),
   ],
   { revalidate: ONE_DAY_SECONDS },
 );
@@ -1073,15 +1071,22 @@ async function fetchLandscapeVideos(query: string): Promise<VideoClip[]> {
     clips.push(clip);
   }
 
-  // Preferred accounts stay in list order. Everyone else keeps the
-  // order Pexels sent, behind those accounts.
-  clips.sort(
+  return clips;
+}
+
+/**
+ * Preferred accounts stay in list order. Everyone else keeps the
+ * order Pexels sent, behind those accounts. This runs on the saved
+ * list, so changing the preferred accounts does not search again.
+ * The copy matters: sorting the cached array would change it for
+ * the next song.
+ */
+function withPreferredAccountsFirst(clips: VideoClip[]): VideoClip[] {
+  return [...clips].sort(
     (a, b) =>
       preferredVideographerRank(a.videographerUrl, a.videographer) -
       preferredVideographerRank(b.videographerUrl, b.videographer),
   );
-
-  return clips;
 }
 
 /**

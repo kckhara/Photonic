@@ -11,7 +11,8 @@
  * match for the line and still gets thrown out.
  *
  * Edit this list freely. You do not need to change any other file.
- * After you save, the next photo lookup uses the new list.
+ * After you save, the next song uses the new list. A search already
+ * saved is filtered again, so this does not ask Pexels or Unsplash again.
  *
  * Matching rules:
  * - Capital letters do not matter. "Sign" matches "sign".
@@ -364,8 +365,9 @@ export const BLOCKED_VIDEOGRAPHER_NAMES = ["monstera production"];
 /**
  * Accounts whose clips play before everyone else's.
  * Paste a profile address, one per entry. Higher in the list wins.
- * The next video lookup uses the new list. An account is chosen only
- * when their clip is already in the search results for that lyric word.
+ * The next song uses the new order. A search already saved is
+ * reordered, so this does not ask Pexels again. An account is chosen
+ * only when their clip is already in the search results for that lyric word.
  * https://www.pexels.com/@arthousestudio/
  */
 export const PREFERRED_VIDEOGRAPHERS = [
