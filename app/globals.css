@@ -1146,7 +1146,15 @@ body {
   }
 
   .home-intro-desktop-note {
-    display: inline;
+    display: block;
+  }
+
+  /* The desktop line is a second row under the login line. */
+  .is-controls-idle .home-controls-lower.has-spotify-login {
+    --space-login-note: calc(
+      4 * var(--font-size-homepage-desktop-note) *
+        var(--line-height-homepage-desktop-note) + var(--space-stack-gap)
+    );
   }
 
   .no-lyrics-overlay {

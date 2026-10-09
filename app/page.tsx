@@ -537,6 +537,7 @@ export default function Home() {
             <div className="home-search-column">
               <SearchBox onSelect={onSelect} onOpenChange={onSearchOpenChange} />
               {showSpotifyLogin && <SpotifyLoginNote />}
+              {showSpotifyLogin && <DesktopNote />}
             </div>
           </div>
           {!pick && !searchOpen && <HomeIntro />}
@@ -596,6 +597,15 @@ function SpotifyLoginNote() {
   );
 }
 
+/** Under the login line, phones only. Hidden while search results are open. */
+function DesktopNote() {
+  return (
+    <p className="spotify-login-hint spotify-home-login home-intro-desktop-note">
+      Best experienced on desktop.
+    </p>
+  );
+}
+
 function HomeIntro() {
   return (
     <div className="home-intro">
@@ -607,10 +617,6 @@ function HomeIntro() {
         <p className="home-intro-text">
           What happens when you pair music with images that were never meant
           to be together?
-          <span className="home-intro-desktop-note">
-            {" "}
-            Best experienced on desktop.
-          </span>
         </p>
       </div>
     </div>
