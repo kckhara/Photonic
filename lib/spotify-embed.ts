@@ -1,23 +1,49 @@
 import { isPhoneLayout } from "@/lib/phone";
 
 /**
- * Phone browsers only start Spotify during the tap that chose the song.
- * The song package arrives too late for that, so while search results
- * are on screen we load each embed off to the side. The tap then calls
- * play() on the one that's already there.
+ * Phone browsers preload each Spotify embed while search results are open,
+ * so the player can show one quickly. The tap that chooses a song does not
+ * call play(). Spotify's play() starts a 30-second preview even when this
+ * browser is logged into Premium. The play button inside the embed is what
+ * starts the full song, and it can see the login.
+ *
+ * That same tap asks the browser to let the embed read Spotify's cookies.
+ * A preload from before that grant is thrown away, and the visible player
+ * waits for the grant before it builds a new embed.
  *
  * Browser-only. Imported from the search box and the player.
  */
 
 const SCRIPT = "https://open.spotify.com/embed/iframe-api/v1";
+const SPOTIFY_ORIGIN = "https://open.spotify.com";
 
-// A second play() while the first is still starting makes the button
-// show pause with no sound. Ignore a repeat from the ready event.
-const PLAY_REPEAT_MS = 800;
+// Resolved once a tap has asked for Spotify's cookies. The visible player
+// waits on this before building its embed. Starts finished so a player
+// that appears without a tap does not wait forever.
+let cookieAccess: Promise<void> = Promise.resolve();
 
-// How long the tap still "owns" playback, so the visible player does
-// not send another play() for the same start.
-const GESTURE_OWNS_MS = 10_000;
+type StorageAccessDocument = Document & {
+  requestStorageAccessFor?: (origin: string) => Promise<void>;
+};
+
+/**
+ * Ask the browser, inside the tap that chose the song, to let an embed
+ * from open.spotify.com read the Spotify login. Browsers that block
+ * third-party cookies otherwise treat that embed as logged out.
+ */
+export function requestSpotifyCookieAccess(): void {
+  const request = (document as StorageAccessDocument).requestStorageAccessFor;
+  if (!request) return;
+  cookieAccess = request.call(document, SPOTIFY_ORIGIN).then(
+    () => undefined,
+    () => undefined,
+  );
+}
+
+/** Resolves when the latest cookie request has finished, or immediately. */
+export function spotifyCookiesReady(): Promise<void> {
+  return cookieAccess;
+}
 
 // Don't leave the visible player blank if a preload never finishes.
 const WAIT_FOR_WARM_MS = 8_000;
@@ -62,16 +88,10 @@ type Warm = {
   settle: () => void;
 };
 
-type PendingPlay = {
-  spotifyId: string;
-  at: number;
-};
-
 const warms = new Map<string, Warm>();
 let keepIds = new Set<string>();
 let pool: HTMLDivElement | null = null;
 let prepareGeneration = 0;
-let pendingPlay: PendingPlay | null = null;
 
 function spotifyGlobals(): SpotifyGlobals {
   return window as unknown as SpotifyGlobals;
@@ -170,38 +190,12 @@ function collect(
   }
 }
 
-/**
- * Start this track from the tap that chose it.
- * If the embed is still loading, wait until it's ready and play then —
- * calling play() early is queued and sent after the tap has expired.
- */
-export function playWarmedSpotify(spotifyId: string) {
-  pendingPlay = { spotifyId, at: performance.now() };
-  pauseOthers(spotifyId);
-
-  const warm = warms.get(spotifyId);
-  if (!warm?.ready) return;
-
-  // A later tap on the same row should be able to start it again.
-  if (warm.playSentAt && performance.now() - warm.playSentAt > PLAY_REPEAT_MS) {
-    warm.playSent = false;
-  }
-  sendPlay(warm);
-}
-
 export function hasWarmedSpotify(spotifyId: string): boolean {
   return warms.has(spotifyId);
 }
 
 export function warmedSpotifyIsReady(spotifyId: string): boolean {
   return warms.get(spotifyId)?.ready === true;
-}
-
-/** True after the tap already sent play(), so the player must not send a second one. */
-export function spotifyGestureOwnsPlayback(spotifyId: string): boolean {
-  const warm = warms.get(spotifyId);
-  if (!warm?.playSentAt) return false;
-  return performance.now() - warm.playSentAt < GESTURE_OWNS_MS;
 }
 
 export function waitForWarmedSpotify(spotifyId: string): Promise<boolean> {
@@ -323,7 +317,6 @@ function ensureWarm(spotifyId: string) {
           warm.iframe = slot.querySelector("iframe");
           controller.addListener("ready", () => {
             warm.ready = true;
-            playIfTapStillCounts(warm);
           });
           warm.settle();
         },
@@ -332,37 +325,6 @@ function ensureWarm(spotifyId: string) {
     .catch(() => {
       warm.settle();
     });
-}
-
-function playIfTapStillCounts(warm: Warm) {
-  const pending = pendingPlay;
-  if (!pending || pending.spotifyId !== warm.spotifyId) return;
-  if (performance.now() - pending.at > GESTURE_OWNS_MS) return;
-  if (navigator.userActivation && navigator.userActivation.isActive === false) return;
-  sendPlay(warm);
-}
-
-function sendPlay(warm: Warm): boolean {
-  if (!warm.controller || warm.playSent) return warm.playSent;
-  try {
-    warm.controller.play();
-    warm.playSent = true;
-    warm.playSentAt = performance.now();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function pauseOthers(spotifyId: string) {
-  for (const [id, warm] of warms) {
-    if (id === spotifyId || !warm.controller) continue;
-    try {
-      warm.controller.pause();
-    } catch {
-      // Already gone.
-    }
-  }
 }
 
 function ensurePool(): HTMLDivElement {

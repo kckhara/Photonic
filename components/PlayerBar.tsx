@@ -4,14 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { SearchHit } from "@/lib/deezer";
 import {
-  abandonWarmedSpotify,
-  claimWarmedSpotify,
-  hasWarmedSpotify,
   loadSpotifyIframeApi,
-  releaseWarmedSpotify,
-  spotifyGestureOwnsPlayback,
-  waitForWarmedSpotify,
-  warmedSpotifyIsReady,
+  spotifyCookiesReady,
 } from "@/lib/spotify-embed";
 import { QUOTA_NOTICE } from "@/lib/limit-notice";
 import { SPOTIFY_LOGIN_URL } from "@/lib/preview";
@@ -289,25 +283,17 @@ function SpotifyPlayer({
     if (!host) return;
 
     let cancelled = false;
-    let claimed = false;
     let stallTimer = 0;
     let detach = () => {};
 
-    function watch(controller: EmbedController, fromWarm: boolean) {
+    function watch(controller: EmbedController) {
       controllerRef.current = controller;
-
-      // One play() only. A second one, while the first is still
-      // starting, leaves the button on pause and the song silent.
-      let playRequested = false;
-      function requestPlay() {
-        if (fromWarm && spotifyGestureOwnsPlayback(spotifyId)) return;
-        if (playRequested) return;
-        playRequested = true;
-        tryPlay(controller);
-      }
 
       // "Reload player" builds a new embed. Spotify starts it at 0,
       // so we jump back to the moment they were hearing.
+      // We do not call play(). That call starts a 30-second preview
+      // even when this browser is logged into Spotify Premium. The
+      // button inside the embed starts the full song.
       let seekAttempts = 0;
       function resumeAtSavedPosition(currentPositionMs?: number) {
         if (cancelled || startAtMs <= 500) return;
@@ -320,7 +306,6 @@ function SpotifyPlayer({
         if (seekAttempts >= 2) return;
         seekAttempts += 1;
         controller.seek(startAtMs / 1000);
-        if (autoplay) tryPlay(controller);
       }
 
       // Spotify sometimes says "playing" after the clip has finished, and
@@ -421,22 +406,16 @@ function SpotifyPlayer({
         }
       };
 
-      // Start once Spotify says the embed is ready. Calling play earlier
-      // as well sends a second play, and the button can end up showing
-      // pause while nothing is audible. A phone tap may already have
-      // called play() on a preloaded embed.
+      // A saved position is the only thing we apply when the embed is
+      // ready. Playback itself starts from the button inside the embed.
       const onReady = () => {
         if (cancelled) return;
         if (startAtMs > 500) resumeAtSavedPosition();
-        else if (autoplay) requestPlay();
       };
 
       controller.addListener("playback_update", onPlayback);
       controller.addListener("ready", onReady);
       if (startAtMs > 500) resumeAtSavedPosition();
-      // The preload's ready event already fired, so this is the only
-      // chance to start it — unless the tap already did.
-      if (fromWarm && autoplay && warmedSpotifyIsReady(spotifyId)) requestPlay();
 
       return () => {
         controller.removeListener("playback_update", onPlayback);
@@ -450,58 +429,42 @@ function SpotifyPlayer({
       const element = document.createElement("div");
       host.replaceChildren(element);
 
-      void loadSpotifyIframeApi().then((api) => {
-        if (cancelled) return;
+      void Promise.all([loadSpotifyIframeApi(), spotifyCookiesReady()]).then(
+        ([api]) => {
+          if (cancelled) return;
 
-        api.createController(
-          element,
-          {
-            uri: `spotify:track:${spotifyId}`,
-            width: "100%",
-            height: EMBED_HEIGHT,
-          },
-          (controller) => {
-            const embed = controller as EmbedController;
-            if (cancelled) {
-              destroyController(embed);
-              return;
-            }
-            detach = watch(embed, false);
-          },
-        );
-      });
+          api.createController(
+            element,
+            {
+              uri: `spotify:track:${spotifyId}`,
+              width: "100%",
+              height: EMBED_HEIGHT,
+            },
+            (controller) => {
+              const embed = controller as EmbedController;
+              if (cancelled) {
+                destroyController(embed);
+                return;
+              }
+              detach = watch(embed);
+            },
+          );
+        },
+      );
     }
 
-    // A phone tap already started this embed. Use that iframe instead of
-    // building another one after the song package arrives.
-    const useWarm = autoplay && startAtMs <= 500 && hasWarmedSpotify(spotifyId);
-    if (useWarm) {
-      void waitForWarmedSpotify(spotifyId).then((preloaded) => {
-        if (cancelled) return;
-        const controller = preloaded ? claimWarmedSpotify(spotifyId, host) : null;
-        if (!controller) {
-          abandonWarmedSpotify(spotifyId);
-          if (!cancelled) startFresh();
-          return;
-        }
-        claimed = true;
-        detach = watch(controller as EmbedController, true);
-      });
-    } else {
-      startFresh();
-    }
+    // A preload was built before this browser granted Spotify's cookies,
+    // so it can still be logged out. Always build the visible player
+    // after that grant.
+    startFresh();
 
     return () => {
       cancelled = true;
       window.clearTimeout(stallTimer);
       detach();
       publish(null);
-      if (claimed) {
-        releaseWarmedSpotify(spotifyId);
-      } else {
-        destroyController(controllerRef.current);
-        host.replaceChildren();
-      }
+      destroyController(controllerRef.current);
+      host.replaceChildren();
       controllerRef.current = null;
     };
   }, [spotifyId, startAtMs, autoplay]);
@@ -516,17 +479,16 @@ function SpotifyPlayer({
     if (!controller) return;
 
     controller.seek(0);
-    tryPlay(controller);
 
     const previous = playbackRef.current;
     const nextPlayback: PlaybackUpdate = {
       ...previous,
       position: 0,
-      isPaused: false,
+      isPaused: true,
       isBuffering: false,
     };
     playbackRef.current = nextPlayback;
-    emitRef.current(nextPlayback, 0, true);
+    emitRef.current(nextPlayback, 0, false);
   }, [restartNonce]);
 
   return (
@@ -543,10 +505,10 @@ function SpotifyPlayer({
 function PreviewLoginHint() {
   return (
     <p className="spotify-login-hint">
-      Already have an account?{" "}
+      Already have an account? Log in to{" "}
       <a href={SPOTIFY_LOGIN_URL} target="_blank" rel="noopener noreferrer">
-        Login to spotify
-      </a>.
+        Spotify
+      </a>, then press play on the player.
     </p>
   );
 }
@@ -751,14 +713,6 @@ function reportedDuration(
     return previous.reportedDurationMs;
   }
   return undefined;
-}
-
-function tryPlay(controller: EmbedController) {
-  try {
-    controller.play();
-  } catch {
-    // The browser blocked autoplay. The Play button still works.
-  }
 }
 
 function destroyController(controller: EmbedController | null) {

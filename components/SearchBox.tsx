@@ -8,7 +8,11 @@ import {
   type ReactNode,
 } from "react";
 import type { ArtistHit, SearchHit, SongHit } from "@/lib/deezer";
-import { playWarmedSpotify, prepareMobilePlayback } from "@/lib/spotify-embed";
+import {
+  abandonWarmedSpotify,
+  prepareMobilePlayback,
+  requestSpotifyCookieAccess,
+} from "@/lib/spotify-embed";
 
 // Wait this long after the last keystroke before searching.
 // Stops us from calling the server on every single letter.
@@ -128,8 +132,9 @@ export function SearchBox({
     };
   }, [query]);
 
-  // Phones block playback that starts after this list closes, so preload
-  // each row's Spotify embed while the person is still choosing.
+  // Phones preload each row's embed while the person is still choosing.
+  // The tap does not start playback. Spotify's play() would lock a
+  // logged-in browser onto a 30-second preview.
   useEffect(() => {
     const controller = new AbortController();
     void prepareMobilePlayback(songs, artists, controller.signal).then((ids) => {
@@ -151,9 +156,11 @@ export function SearchBox({
   }, []);
 
   function choose(hit: SearchHit) {
-    // play() has to run inside this tap. After await, a phone will ignore it.
+    // Ask during this tap, before the player builds its embed. A preload
+    // from before the grant is dropped so it cannot stay logged out.
+    requestSpotifyCookieAccess();
     const spotifyId = playbackIds.current.get(`${hit.type}:${hit.id}`);
-    if (spotifyId) playWarmedSpotify(spotifyId);
+    if (spotifyId) abandonWarmedSpotify(spotifyId);
     setIsOpen(false);
     onSelect(hit);
   }
