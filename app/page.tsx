@@ -44,10 +44,8 @@ import type {
  * Any movement brings search and the filters back.
  * This file runs in the browser because it has to remember the chosen song.
  *
- * If Spotify is only playing a 30-second preview, a line under the
- * player offers a login link. Until a full song shows they are logged
- * in, a line under the search bar offers the same login. Photos keep
- * playing behind it.
+ * Until a full song shows they are logged in, a line under the search
+ * bar offers a Spotify login. Photos keep playing behind it.
  *
  * When a full song finishes, a credits screen covers the pictures.
  * Search stays at the top so another song can be chosen. A preview
@@ -516,7 +514,6 @@ export default function Home() {
                 selection={pick.hit}
                 onSong={onSong}
                 onPlayback={onPlayback}
-                previewMode={previewMode}
                 playerCommand={playerCommand}
                 onVisibleChange={onPlayerVisible}
               />

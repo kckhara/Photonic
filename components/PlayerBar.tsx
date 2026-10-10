@@ -8,7 +8,6 @@ import {
   spotifyCookiesReady,
 } from "@/lib/spotify-embed";
 import { QUOTA_NOTICE } from "@/lib/limit-notice";
-import { SPOTIFY_LOGIN_URL } from "@/lib/preview";
 import type { PlaybackSample, SongPackage } from "@/lib/types";
 
 // Spotify's compact player is 152px. A shorter slot crops the album art.
@@ -68,15 +67,12 @@ export function PlayerBar({
   selection,
   onSong,
   onPlayback,
-  previewMode = false,
   playerCommand = null,
   onVisibleChange,
 }: {
   selection: SearchHit;
   onSong: (song: SongPackage | null) => void;
   onPlayback: (playback: PlaybackSample | null) => void;
-  // True while Spotify is only playing a 30-second preview.
-  previewMode?: boolean;
   // Reload the embed, or send the preview back to the start.
   playerCommand?: PlayerCommand | null;
   // True once the Spotify embed is on the page.
@@ -208,11 +204,6 @@ export function PlayerBar({
           />
         )}
       </section>
-      <div className={`spotify-hint-slot${previewMode ? " is-in" : ""}`}>
-        <div className="spotify-hint-clip">
-          <PreviewLoginHint />
-        </div>
-      </div>
     </>
   );
 }
@@ -498,18 +489,6 @@ function SpotifyPlayer({
         <div ref={hostRef} />
       </div>
     </div>
-  );
-}
-
-/** Shown under the player while Spotify is only playing a preview. */
-function PreviewLoginHint() {
-  return (
-    <p className="spotify-login-hint">
-      Already have an account? Log in to{" "}
-      <a href={SPOTIFY_LOGIN_URL} target="_blank" rel="noopener noreferrer">
-        Spotify
-      </a>, then press play on the player.
-    </p>
   );
 }
 
