@@ -589,7 +589,7 @@ function SpotifyLoginNote() {
       For the full experience, log in to{" "}
       <a href={SPOTIFY_LOGIN_URL} target="_blank" rel="noopener noreferrer">
         Spotify
-      </a> first.
+      </a>
     </p>
   );
 }
