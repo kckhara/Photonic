@@ -161,7 +161,7 @@ body {
     transform var(--motion-collapse) var(--ease-control);
 }
 
-/* The login line adds a row under search. Slide that away too.
+/* The login line adds a row above search. Slide that away too.
    Two lines covers a wrap on a narrow phone. */
 .is-controls-idle .home-controls-lower.has-spotify-login {
   --space-login-note: calc(
@@ -758,7 +758,7 @@ body {
 }
 
 .spotify-home-login {
-  margin-top: var(--space-stack-gap);
+  margin-bottom: var(--space-stack-gap);
   font-size: var(--font-size-homepage-desktop-note);
   font-weight: var(--font-weight-homepage-desktop-note);
   line-height: var(--line-height-homepage-desktop-note);

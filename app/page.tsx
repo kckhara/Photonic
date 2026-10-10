@@ -44,7 +44,7 @@ import type {
  * Any movement brings search and the filters back.
  * This file runs in the browser because it has to remember the chosen song.
  *
- * Until a full song shows they are logged in, a line under the search
+ * Until a full song shows they are logged in, a line above the search
  * bar offers a Spotify login. Photos keep playing behind it.
  *
  * When a full song finishes, a credits screen covers the pictures.
@@ -532,9 +532,9 @@ export default function Home() {
             inert={pick && controlsIdle && !showCredits ? true : undefined}
           >
             <div className="home-search-column">
-              <SearchBox onSelect={onSelect} onOpenChange={onSearchOpenChange} />
               {showSpotifyLogin && <SpotifyLoginNote />}
               {showSpotifyLogin && <DesktopNote />}
+              <SearchBox onSelect={onSelect} onOpenChange={onSearchOpenChange} />
             </div>
           </div>
           {!pick && !searchOpen && <HomeIntro />}
@@ -582,7 +582,7 @@ function rememberSpotifyLoggedIn(loggedIn: boolean) {
   }
 }
 
-/** Under the search bar until a full song shows they are logged in. */
+/** Above the search bar until a full song shows they are logged in. */
 function SpotifyLoginNote() {
   return (
     <p className="spotify-login-hint spotify-home-login">
