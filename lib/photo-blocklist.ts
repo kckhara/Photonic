@@ -49,6 +49,11 @@ export const PHOTO_BLOCKLIST = [
   "Scrabbles",
   "Handwriting",
   "Handwritten",
+  "notebook",
+  "notebooks",
+  "note pad",
+  "note pads",
+  "stationery",
   // Plurals and other names for the same thing. "sign" does not match "signs".
   "signs",
   "placard",
@@ -97,6 +102,7 @@ export const PHOTO_BLOCKLIST = [
   "imacs",
   "posing",
   "nothing phone",
+  "smart device",
   // Product photography, including objects whose name contains a lyric word.
   "product",
   "products",
