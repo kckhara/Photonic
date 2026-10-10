@@ -49,6 +49,7 @@ import { unstable_cache } from "next/cache";
 import {
   BLOCKED_VIDEOGRAPHER_IDS,
   BLOCKED_VIDEOGRAPHER_NAMES,
+  PREFERRED_VIDEOGRAPHERS,
   VIDEO_BLOCKLIST,
   altIsBlocked,
   altMentionsWord,
@@ -1082,11 +1083,18 @@ async function fetchLandscapeVideos(query: string): Promise<VideoClip[]> {
  * the next song.
  */
 function withPreferredAccountsFirst(clips: VideoClip[]): VideoClip[] {
-  return [...clips].sort(
-    (a, b) =>
-      preferredVideographerRank(a.videographerUrl, a.videographer) -
-      preferredVideographerRank(b.videographerUrl, b.videographer),
-  );
+  return [...clips]
+    .map((clip) => {
+      const preferred =
+        preferredVideographerRank(clip.videographerUrl, clip.videographer) <
+        PREFERRED_VIDEOGRAPHERS.length;
+      return preferred ? { ...clip, preferredAccount: true } : clip;
+    })
+    .sort(
+      (a, b) =>
+        preferredVideographerRank(a.videographerUrl, a.videographer) -
+        preferredVideographerRank(b.videographerUrl, b.videographer),
+    );
 }
 
 /**

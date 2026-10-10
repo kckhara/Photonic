@@ -37,8 +37,8 @@ export type Photo = {
   // this photo is shown.
   downloadLocation?: string;
   // How stock-looking this photo scored when it was chosen. Lower is
-  // better. Set only on photos that made it into a scene. The /debug
-  // page shows this with stockReasons so the weights can be tuned.
+  // better. Set only on photos that made it into a scene. The player
+  // shows this with stockReasons, and /debug uses the same fields.
   stockScore?: number;
   stockReasons?: string[];
 };
@@ -61,6 +61,10 @@ export type VideoClip = {
   videographerUrl: string;
   // The clip's page on Pexels.
   pexelsUrl: string;
+  // True when this account is on the preferred list, so the clip
+  // plays before other results for the same word. The corner caption
+  // uses this. Missing on clips saved before the flag existed.
+  preferredAccount?: boolean;
 };
 
 /**
