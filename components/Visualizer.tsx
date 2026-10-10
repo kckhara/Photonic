@@ -3,11 +3,6 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { mediaLimitNotice } from "@/lib/limit-notice";
-import {
-  photoScoreCaption,
-  videoScoreCaption,
-  type ScoreCaption,
-} from "@/lib/score-caption";
 import { PREVIEW_MAX_MS, classifyPlayback } from "@/lib/preview";
 import { beatOnlyScenes, isTitleCardMoment } from "@/lib/scenes";
 import {
@@ -76,10 +71,6 @@ import type {
  * Black and white covers this whole layer: photos, clips, the standby
  * frame, and the album art on the title card. Color turns that off.
  * Search and the player sit above this layer, so they stay as they are.
- *
- * A caption in the lower left says why the current picture is up.
- * A photo shows its stock score and what added points. A clip says
- * how it was picked, since clips are not stock-scored.
  */
 
 type Slide = {
@@ -152,9 +143,6 @@ export function Visualizer({
   const [clipFade, setClipFade] = useState(true);
   // Still frame for the clip we're waiting on, when there's no photo yet.
   const [standbyClip, setStandbyClip] = useState<VideoClip | null>(null);
-  // The clip covering the photos, so the caption can explain that clip.
-  const [onClip, setOnClip] = useState<VideoClip | null>(null);
-  const captionClipIdRef = useRef<number | null>(null);
   const slidesRef = useRef(slides);
   const titleHeldRef = useRef(true);
   const videoRefA = useRef<HTMLVideoElement>(null);
@@ -185,13 +173,6 @@ export function Visualizer({
     allowClipsRef.current = allowClips;
     visualModeRef.current = visualMode;
   });
-
-  // A new song must not keep the previous clip's caption.
-  const songId = song?.deezerId ?? null;
-  useEffect(() => {
-    captionClipIdRef.current = null;
-    setOnClip(null);
-  }, [songId]);
 
   // Which photo the loop last chose. Undefined until the first choice,
   // so "nothing yet" is different from "no photo at this moment".
@@ -440,10 +421,6 @@ export function Visualizer({
         clipShownAtRef.current = performance.now();
       }
       showStandby(null);
-      if (captionClipIdRef.current !== clip.id) {
-        captionClipIdRef.current = clip.id;
-        setOnClip(clip);
-      }
       if (shownClipIdRef.current === clip.id) return;
       shownClipIdRef.current = clip.id;
       setShownClips((current) => rememberClip(current, clip));
@@ -1092,10 +1069,8 @@ export function Visualizer({
   // Pexels sends an average color. Once a photo is up, keep that color.
   // The incoming picture's color would flash through any gap in the fade.
   let shownColor: string | undefined;
-  let visibleSlide: Slide | undefined;
   for (let i = slides.length - 1; i >= 0; i -= 1) {
     if (slides[i].visible) {
-      visibleSlide = slides[i];
       shownColor = slides[i].photo.avgColor;
       break;
     }
@@ -1104,16 +1079,6 @@ export function Visualizer({
     shownColor ||
     slides[slides.length - 1]?.photo.avgColor ||
     "var(--color-bg-photo-fallback)";
-
-  const scoreCaption = captionNow({
-    holdPhotos,
-    showTitle,
-    clipOnScreen,
-    onClip,
-    standbyClip,
-    visibleSlide,
-    scenes: song.scenes,
-  });
 
   return (
     <>
@@ -1183,12 +1148,6 @@ export function Visualizer({
             fadeMs={fadeMs}
           />
         </>
-      )}
-      {scoreCaption && (
-        <ScoreReadout
-          key={scoreCaptionKey(scoreCaption)}
-          caption={scoreCaption}
-        />
       )}
     </div>
     </>
@@ -1352,79 +1311,6 @@ function formatCountdown(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-}
-
-function keywordForClip(scenes: Scene[], clip: VideoClip): string {
-  for (const scene of scenes) {
-    if (scene.video?.id === clip.id) return scene.keyword;
-  }
-  return "";
-}
-
-function captionNow({
-  holdPhotos,
-  showTitle,
-  clipOnScreen,
-  onClip,
-  standbyClip,
-  visibleSlide,
-  scenes,
-}: {
-  holdPhotos: boolean;
-  showTitle: boolean;
-  clipOnScreen: boolean;
-  onClip: VideoClip | null;
-  standbyClip: VideoClip | null;
-  visibleSlide: Slide | undefined;
-  scenes: Scene[];
-}): ScoreCaption | null {
-  if (holdPhotos || showTitle) return null;
-
-  if (clipOnScreen && onClip) {
-    return videoScoreCaption(onClip, keywordForClip(scenes, onClip));
-  }
-
-  if (!clipOnScreen && standbyClip && !visibleSlide) {
-    return videoScoreCaption(standbyClip, keywordForClip(scenes, standbyClip));
-  }
-
-  if (visibleSlide) {
-    return photoScoreCaption(visibleSlide.photo, visibleSlide.keyword);
-  }
-
-  return null;
-}
-
-function scoreCaptionKey(caption: ScoreCaption): string {
-  return `${caption.heading}|${caption.word}|${caption.rows.map((row) => row.label).join("|")}`;
-}
-
-/**
- * Why the picture on screen was chosen.
- * Sits in the lower left, above the photo and the clip, and under
- * the player. The number is the stock score. A clip has no score,
- * so the heading says Clip and the lines explain the pick.
- */
-function ScoreReadout({ caption }: { caption: ScoreCaption }) {
-  return (
-    <div className="score-caption">
-      <p className="score-caption-heading">{caption.heading}</p>
-      {caption.word ? (
-        <p className="score-caption-word">For “{caption.word}”</p>
-      ) : null}
-      <ul className="score-caption-rows">
-        {caption.rows.map((row, index) => (
-          <li key={`${row.label}-${index}`}>
-            <span>{row.label}</span>
-            {row.points != null ? (
-              <span className="score-caption-points">+{row.points}</span>
-            ) : null}
-          </li>
-        ))}
-      </ul>
-      {caption.note ? <p className="score-caption-note">{caption.note}</p> : null}
-    </div>
-  );
 }
 
 /**
