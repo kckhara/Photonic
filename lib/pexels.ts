@@ -47,11 +47,13 @@
 
 import { unstable_cache } from "next/cache";
 import {
+  BLOCKED_PEXELS_ACCOUNTS,
   BLOCKED_VIDEOGRAPHER_IDS,
   BLOCKED_VIDEOGRAPHER_NAMES,
   VIDEO_BLOCKLIST,
   altIsBlocked,
   altMentionsWord,
+  pexelsAccountIsBlocked,
   preferredVideographerRank,
   videoTextIsBlocked,
   videographerIsBlocked,
@@ -224,8 +226,9 @@ function photoSearchGate(): PhotoSearchGate {
     search,
     curated: async (page) => {
       const photos = await guard(() => getCuratedPage(page));
-      rememberPhotographers(photos);
-      return photos;
+      const kept = photos.filter((photo) => !accountIsBlocked(photo));
+      rememberPhotographers(kept);
+      return kept;
     },
     wasBusy: () => busy,
     wasUnsplashQuota: () => unsplashQuota,
@@ -619,10 +622,24 @@ function combineSearchPhotos(query: string, groups: Photo[][]): Photo[] {
   return combined;
 }
 
-/** True when the description or the page address is on the blocklist. */
+/** True when the description, the page address, or the account is blocked. */
 function photoIsBlocked(photo: Photo, query: string): boolean {
+  if (accountIsBlocked(photo)) return true;
   if (altIsBlocked(photo.alt, query)) return true;
   return altIsBlocked(slugText(photo.pageUrl), query);
+}
+
+/** True when this photo belongs to a blocked Pexels account. */
+function accountIsBlocked(photo: Photo): boolean {
+  if (photo.provider !== "pexels") return false;
+  return pexelsAccountIsBlocked(photo.photographerUrl, pexelsUserId(photo.photographerId));
+}
+
+function pexelsUserId(photographerId: string | undefined): number | undefined {
+  const match = photographerId?.match(/^pexels:(\d+)$/);
+  if (!match) return undefined;
+  const id = Number(match[1]);
+  return Number.isInteger(id) ? id : undefined;
 }
 
 /** Add photos that are not already in the list. */
@@ -1014,6 +1031,7 @@ const getLandscapeVideos = unstable_cache(
     VIDEO_BLOCKLIST.join("|"),
     BLOCKED_VIDEOGRAPHER_IDS.join("|"),
     BLOCKED_VIDEOGRAPHER_NAMES.join("|"),
+    BLOCKED_PEXELS_ACCOUNTS.join("|"),
   ],
   { revalidate: ONE_DAY_SECONDS },
 );
@@ -1096,6 +1114,9 @@ function withPreferredAccountsFirst(clips: VideoClip[]): VideoClip[] {
  */
 function videoIsBlocked(video: PexelsVideo): boolean {
   if (videographerIsBlocked(video.user?.id, video.user?.name ?? "")) {
+    return true;
+  }
+  if (pexelsAccountIsBlocked(video.user?.url ?? "", video.user?.id)) {
     return true;
   }
   return videoTextIsBlocked(slugText(video.url ?? ""));

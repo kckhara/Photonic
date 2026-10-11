@@ -373,6 +373,50 @@ export const BLOCKED_VIDEOGRAPHER_IDS = [3372733];
 export const BLOCKED_VIDEOGRAPHER_NAMES = ["monstera production"];
 
 /**
+ * Pexels accounts whose photos and clips are skipped.
+ * Paste a profile address, one per entry. The number at the end of the
+ * address is the account id, so a photo is skipped even when Pexels
+ * shortens the link. The next song uses the new list. A photo search
+ * already saved is filtered again, so this does not ask Pexels again.
+ */
+export const BLOCKED_PEXELS_ACCOUNTS = [
+  "https://www.pexels.com/@adis-resic-297996969/",
+];
+
+/** True when this Pexels account is on BLOCKED_PEXELS_ACCOUNTS. */
+export function pexelsAccountIsBlocked(url: string, id?: number): boolean {
+  if (typeof id === "number" && blockedAccountIds().includes(id)) {
+    return true;
+  }
+
+  const actual = accountKeys(url, "");
+
+  for (const entry of BLOCKED_PEXELS_ACCOUNTS) {
+    const handle = handleFrom(entry);
+    const keys = handle ? [handle] : accountKeys("", entry);
+    if (keys.some((key) => actual.some((candidate) => sameAccount(key, candidate)))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/** Account ids pasted as the trailing number on a Pexels profile address. */
+function blockedAccountIds(): number[] {
+  const ids: number[] = [];
+
+  for (const entry of BLOCKED_PEXELS_ACCOUNTS) {
+    const match = handleFrom(entry).match(/-(\d+)$/);
+    if (!match) continue;
+    const id = Number(match[1]);
+    if (Number.isInteger(id)) ids.push(id);
+  }
+
+  return ids;
+}
+
+/**
  * Accounts whose clips play before everyone else's.
  * Paste a profile address, one per entry. Higher in the list wins.
  * The next song uses the new order. A search already saved is
