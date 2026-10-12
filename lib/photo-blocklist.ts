@@ -394,6 +394,7 @@ export const BLOCKED_PEXELS_ACCOUNTS = [
   "https://www.pexels.com/@adis-resic-297996969/",
   "https://www.pexels.com/@arina-krasnikova/",
   "https://www.pexels.com/@yankrukov/",
+  "https://www.pexels.com/@rdne/",
 ];
 
 /** True when this Pexels account is on BLOCKED_PEXELS_ACCOUNTS. */
