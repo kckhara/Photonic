@@ -393,6 +393,7 @@ export const BLOCKED_VIDEOGRAPHER_NAMES = ["monstera production"];
 export const BLOCKED_PEXELS_ACCOUNTS = [
   "https://www.pexels.com/@adis-resic-297996969/",
   "https://www.pexels.com/@arina-krasnikova/",
+  "https://www.pexels.com/@yankrukov/",
 ];
 
 /** True when this Pexels account is on BLOCKED_PEXELS_ACCOUNTS. */
