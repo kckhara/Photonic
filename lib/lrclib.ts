@@ -5,10 +5,16 @@
  * header that names this app (LRCLIB_USER_AGENT in .env.local).
  */
 
+import { unstable_cache } from "next/cache";
 import type { LyricsType } from "@/lib/types";
 
-// Remember a lyrics answer for a day. Lyrics for a published song rarely change.
+// Remember a parsed lyrics answer for a day. Lyrics for a published song
+// rarely change. A failed request is thrown, so it is not saved.
 const ONE_DAY_SECONDS = 86400;
+
+// The first try after the site has been idle often hits a dead connection.
+// LRCLIB also asks us to wait out a short 503 or 429.
+const ATTEMPTS = 3;
 
 type LrcRecord = {
   duration?: number;
@@ -41,8 +47,31 @@ const SYNCED_DURATION_WINDOW_SECONDS = 8;
  * searches for another release of the same song whose length is close
  * and whose lyrics are synced. Otherwise keeps the plain text, or the
  * closest search hit when the exact lookup missed.
+ *
+ * The parsed answer is what gets cached. An exact miss is a 404, so that
+ * call runs on every visit. If it fails, the search result is still used.
  */
 export async function getLyrics(song: LyricsLookup): Promise<Lyrics> {
+  return cachedLyrics(
+    song.title,
+    song.artist,
+    song.album,
+    normalizeDuration(song.durationSeconds),
+  );
+}
+
+const cachedLyrics = unstable_cache(fetchLyrics, ["lrclib-lyrics"], {
+  revalidate: ONE_DAY_SECONDS,
+});
+
+async function fetchLyrics(
+  title: string,
+  artist: string,
+  album: string,
+  durationSeconds: number,
+): Promise<Lyrics> {
+  const song: LyricsLookup = { title, artist, album, durationSeconds };
+
   // The exact record often has no timestamps, and a search is then
   // required. Start that search now so the two waits overlap. If the
   // exact record is already synced, the search result is unused.
@@ -54,7 +83,13 @@ export async function getLyrics(song: LyricsLookup): Promise<Lyrics> {
     },
   );
 
-  const exact = await fetchExact(song);
+  let exact: LrcRecord | null = null;
+  try {
+    exact = await fetchExact(song);
+  } catch (error) {
+    // Keep going. The search was started already and may have the lyrics.
+    console.error("LRCLIB exact lookup failed", error);
+  }
 
   if (exact?.instrumental) {
     return { lyricsType: "none", syncedLyrics: null, plainLyrics: null };
@@ -63,15 +98,16 @@ export async function getLyrics(song: LyricsLookup): Promise<Lyrics> {
   if (hasSyncedLyrics(exact)) return asLyrics(exact);
 
   const results = await searchPromise;
-  // The search failed and there is no exact record to fall back on.
-  if (results === null) {
-    if (!exact) throw new Error("LRCLIB search failed.");
-    return asLyrics(exact);
-  }
+  // Both calls failed. Throw so this is not saved as "no lyrics".
+  if (results === null && !exact) throw new Error("LRCLIB lookup failed.");
 
-  const synced = pickClosestSynced(results, song.durationSeconds);
+  const synced = results
+    ? pickClosestSynced(results, song.durationSeconds)
+    : null;
   const record =
-    synced ?? exact ?? pickClosestDuration(results, song.durationSeconds);
+    synced ??
+    exact ??
+    (results ? pickClosestDuration(results, song.durationSeconds) : null);
   return asLyrics(record);
 }
 
@@ -85,39 +121,33 @@ function classify(record: LrcRecord | null): LyricsType {
 }
 
 async function fetchExact(song: LyricsLookup): Promise<LrcRecord | null> {
-  const url = lrclibUrl("get", {
+  const params: Record<string, string> = {
     track_name: song.title,
     artist_name: song.artist,
     album_name: song.album,
-    duration: String(Math.round(song.durationSeconds)),
-  });
-
-  const response = await lrclibFetch(url);
-
-  // 404 means "no exact match" — the caller tries search next.
-  if (response.status === 404) return null;
-
-  if (!response.ok) {
-    throw new Error(`LRCLIB lookup failed (${response.status}).`);
+  };
+  // Duration must be 1–3600 or LRCLIB answers 400 and the search never runs.
+  if (song.durationSeconds >= 1) {
+    params.duration = String(song.durationSeconds);
   }
 
-  return (await response.json()) as LrcRecord;
+  const result = await lrclibJson<LrcRecord>(lrclibUrl("get", params));
+  // 404 means "no exact match" — the caller tries search next.
+  if (result.notFound) return null;
+  return result.body;
 }
 
 async function searchLyrics(song: LyricsLookup): Promise<LrcRecord[]> {
-  const url = lrclibUrl("search", {
-    track_name: song.title,
-    artist_name: song.artist,
-  });
+  const result = await lrclibJson<LrcRecord[]>(
+    lrclibUrl("search", {
+      track_name: song.title,
+      artist_name: song.artist,
+    }),
+  );
 
-  const response = await lrclibFetch(url);
-
-  if (!response.ok) {
-    throw new Error(`LRCLIB search failed (${response.status}).`);
-  }
-
-  const results = (await response.json()) as LrcRecord[];
-  return Array.isArray(results) ? results : [];
+  // Search returns an empty list when nothing matches. A 404 here is not that.
+  if (result.notFound) throw new Error("LRCLIB search failed (404).");
+  return Array.isArray(result.body) ? result.body : [];
 }
 
 function hasSyncedLyrics(record: LrcRecord | null): boolean {
@@ -187,6 +217,12 @@ function pickClosestDuration(
   return closest;
 }
 
+function normalizeDuration(seconds: number): number {
+  const rounded = Math.round(seconds);
+  if (!Number.isFinite(rounded) || rounded < 1 || rounded > 3600) return 0;
+  return rounded;
+}
+
 function lrclibUrl(path: string, params: Record<string, string>): string {
   const url = new URL(`https://lrclib.net/api/${path}`);
 
@@ -197,7 +233,13 @@ function lrclibUrl(path: string, params: Record<string, string>): string {
   return url.toString();
 }
 
-async function lrclibFetch(url: string): Promise<Response> {
+type LrcJson<T> = { notFound: true } | { notFound: false; body: T };
+
+/**
+ * One LRCLIB call, with a short retry when the connection or the server
+ * fails. The raw response is not cached. Callers cache the lyrics they parsed.
+ */
+async function lrclibJson<T>(url: string): Promise<LrcJson<T>> {
   const userAgent = process.env.LRCLIB_USER_AGENT;
 
   if (!userAgent) {
@@ -206,11 +248,90 @@ async function lrclibFetch(url: string): Promise<Response> {
     );
   }
 
-  return fetch(url, {
-    headers: {
-      // LRCLIB asks every app to identify itself. The value stays on the server.
-      "User-Agent": userAgent,
-    },
-    next: { revalidate: ONE_DAY_SECONDS },
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        headers: {
+          // LRCLIB asks every app to identify itself. The value stays on the server.
+          "User-Agent": userAgent,
+        },
+        cache: "no-store",
+      });
+    } catch (error) {
+      lastError = error;
+      if (attempt === ATTEMPTS) throw error;
+      console.error("LRCLIB request failed, retrying", error);
+      await wait(250 * attempt);
+      continue;
+    }
+
+    if (response.status === 404) {
+      await drain(response);
+      return { notFound: true };
+    }
+
+    if (!response.ok) {
+      const delay = retryDelayMs(response, attempt);
+      await drain(response);
+      if (delay === null || attempt === ATTEMPTS) {
+        throw new Error(`LRCLIB request failed (${response.status}).`);
+      }
+      console.error(`LRCLIB answered ${response.status}, retrying`);
+      await wait(delay);
+      continue;
+    }
+
+    try {
+      return { notFound: false, body: JSON.parse(await response.text()) as T };
+    } catch (error) {
+      lastError = error;
+      if (attempt === ATTEMPTS) {
+        throw new Error("LRCLIB returned a response that was not JSON.");
+      }
+      console.error("LRCLIB returned unreadable JSON, retrying", error);
+      await wait(250 * attempt);
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("LRCLIB request failed.");
+}
+
+// 429 with a long Retry-After is a real limit. Hammering it can get the app banned.
+function retryDelayMs(response: Response, attempt: number): number | null {
+  if (!isTransientStatus(response.status)) return null;
+
+  const hinted = Number(response.headers.get("retry-after"));
+  const hintedMs = Number.isFinite(hinted) && hinted >= 0 ? hinted * 1000 : null;
+  if (response.status === 429 && hintedMs !== null && hintedMs > 2000) return null;
+
+  return Math.min(2000, Math.max(200, hintedMs ?? 250 * attempt));
+}
+
+function isTransientStatus(status: number): boolean {
+  return (
+    status === 408 ||
+    status === 429 ||
+    status === 500 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504
+  );
+}
+
+// An unread body holds the connection. The next lyrics call then fails on it.
+async function drain(response: Response): Promise<void> {
+  try {
+    await response.arrayBuffer();
+  } catch {
+    // The status is what we needed. A bad body should not hide that.
+  }
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
   });
 }
